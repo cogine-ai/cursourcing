@@ -7,7 +7,7 @@ if (!process.argv[2]) throw new Error('Usage: node scripts/export-plugin.mjs <de
 const destination = resolve(process.argv[2]);
 if (destination === resolve(root)) throw new Error('Choose a separate distribution directory');
 mkdirSync(destination, { recursive: true });
-for (const relative of ['.codex-plugin', '.mcp.json', 'dist', 'skills', 'assets', 'docs', 'README.md', 'README.zh-CN.md']) {
+for (const relative of ['.codex-plugin', '.mcp.json', 'dist', 'skills', 'assets', 'docs', 'README.md', 'README.zh-CN.md', 'LICENSE', 'NOTICE']) {
   cpSync(join(root, relative), join(destination, relative), { recursive: true });
 }
 console.log(`Exported Cursourcing to ${destination}`);

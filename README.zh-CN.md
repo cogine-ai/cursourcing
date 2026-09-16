@@ -106,4 +106,8 @@ codex plugin add cursourcing@cogine-ai
 - [反馈问题或建议](https://github.com/cogine-ai/cursourcing/issues)
 - [Cogine AI Marketplace](https://github.com/cogine-ai/marketplace)
 
+## 开源许可
+
+Cursourcing 的原创内容采用 [Apache-2.0](LICENSE) 许可证，版权归 2026 [Cogine AI](https://github.com/cogine-ai) 所有，署名信息见 [NOTICE](NOTICE)。打包的第三方依赖保留各自的许可证，详见 [THIRD_PARTY_NOTICES.md](dist/THIRD_PARTY_NOTICES.md)。
+
 由 [Cogine AI](https://github.com/cogine-ai) 制作。如果你也认识 Codex 先用完、Cursor 还剩不少的朋友，把这个仓库发给他。

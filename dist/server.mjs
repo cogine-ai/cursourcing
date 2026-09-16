@@ -38168,7 +38168,7 @@ var AcpClient = class {
   async initialize() {
     const info = await this.request("initialize", {
       protocolVersion: 1,
-      clientInfo: { name: "cursourcing", version: "0.1.1" },
+      clientInfo: { name: "cursourcing", version: "0.1.2" },
       clientCapabilities: {
         fs: { readTextFile: false, writeTextFile: false },
         terminal: false,
@@ -38978,7 +38978,7 @@ var TaskManager = class {
 
 // src/server.mjs
 var manager = new TaskManager();
-var server = new McpServer({ name: "cursourcing", version: "0.1.1" });
+var server = new McpServer({ name: "cursourcing", version: "0.1.2" });
 var id = external_exports.string().min(8).max(80);
 var prompt = external_exports.string().min(1).max(3e5);
 var result = (value) => ({ content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value });

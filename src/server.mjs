@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { TaskManager } from './tasks.mjs';
 
 const manager = new TaskManager();
-const server = new McpServer({ name: 'cursourcing', version: '0.1.1' });
+const server = new McpServer({ name: 'cursourcing', version: '0.1.2' });
 const id = z.string().min(8).max(80), prompt = z.string().min(1).max(300000);
 const result = (value) => ({ content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value });
 function tool(name, description, inputSchema, fn, readOnly = false) {

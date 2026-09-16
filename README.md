@@ -106,4 +106,8 @@ Start a new task after updating to pick up the refreshed skill and tools.
 - [Report a bug or suggest an improvement](https://github.com/cogine-ai/cursourcing/issues)
 - [Cogine AI Marketplace](https://github.com/cogine-ai/marketplace) — Cursourcing and the role-based skill collection.
 
+## License
+
+Cursourcing's original material is licensed under [Apache-2.0](LICENSE), copyright 2026 [Cogine AI](https://github.com/cogine-ai). See [NOTICE](NOTICE) for attribution. Bundled third-party dependencies retain their respective licenses in [THIRD_PARTY_NOTICES.md](dist/THIRD_PARTY_NOTICES.md).
+
 Built by [Cogine AI](https://github.com/cogine-ai). Know someone whose Codex runs out before their Cursor does? Send them this repo.
