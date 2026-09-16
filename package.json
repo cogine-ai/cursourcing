@@ -1,7 +1,7 @@
 {
   "name": "cursourcing",
-  "version": "0.1.0",
-  "description": "Your Codex just hired Cursor.",
+  "version": "0.1.1",
+  "description": "Your Codex just hired Cursor. Delegate subtasks to Cursor CLI while Codex stays in charge.",
   "repository": { "type": "git", "url": "https://github.com/cogine-ai/cursourcing.git" },
   "private": true,
   "type": "module",

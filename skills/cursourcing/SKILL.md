@@ -1,15 +1,19 @@
 ---
 name: cursourcing
-description: Coordinate work between Codex and Cursor CLI. Use when Cursor execution would help with an implementation or analysis task; Codex plans the work, delegates well-defined subtasks when useful, follows execution, and reviews results.
+description: Put available Cursor capacity to work on implementation, investigation, debugging, and validation while Codex coordinates and reviews. Use for tokenmaxxing across Codex and Cursor, with asynchronous delegation, concurrent tasks, and resumable sessions.
 ---
 
 # Cursourcing
 
-Plan the user's task with the selected Codex model. Treat Cursor as an execution option when a subtask has enough context and a clear enough outcome to hand off. Decide what to delegate, what to do directly, and when other collaboration tools are useful as the work develops.
+Keep the selected Codex model focused on planning, decisions, and acceptance. Actively look for meaningful work Cursor can take on throughout the task, making use of available Cursor capacity.
+
+Prefer handing useful subtasks to Cursor when it can make progress with a clear objective and relevant context. Investigations, design exploration, implementation, debugging, tests, and review are all useful assignments. Cursor can help discover the solution; an investigation can ask for findings and recommendations before an implementation approach is settled.
+
+Match the handoff to the work. Delegate a coherent chunk, provide enough room for Cursor to solve it, and follow up on the result. Direct execution and other collaboration tools remain useful when they fit the task better.
 
 ## Hand off work
 
-Call `start_task` with the absolute working directory of the current Codex task (including its worktree when applicable) and a task brief suited to the work. Cursor does not inherit this conversation: include the relevant decisions, code entry points, and the result you need back. The bridge sends the brief unchanged; it does not add a hidden prompt template.
+Call `start_task` with the absolute working directory of the current Codex task (including its worktree when applicable) and a task brief suited to the work. Cursor does not inherit this conversation: give it the objective, relevant context, real constraints, and the result or evidence you need back. Include known decisions and code entry points when they help. The bridge sends the brief unchanged; it does not add a hidden prompt template.
 
 Cursor uses Grok 4.6 with xhigh effort and fast enabled. `agent` mode supports execution; `ask` is useful for read-only analysis. Startup can take time; `start_task` returns an ID while initialization continues. A stable `request_id` makes an uncertain retry return the same task instead of starting duplicate work.
 

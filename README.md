@@ -1,87 +1,109 @@
-# Cursourcing
+[![Cursourcing — Your Codex just hired Cursor.](assets/hero.png)](https://github.com/cogine-ai/cursourcing)
 
-**Your Codex just hired Cursor.**
+<p align="center">
+  <strong>Delegate subtasks to Cursor CLI while Codex stays in charge.</strong><br />
+  <a href="#install">Install Cursourcing</a> ·
+  <a href="https://github.com/cogine-ai/marketplace">Cogine AI Marketplace</a> ·
+  <a href="README.zh-CN.md">中文</a>
+</p>
 
-Cursourcing = Cursor + outsourcing.
+## Tokenmaxxing for the Astra × Grok era.
 
-Codex plans and coordinates work using the model you selected. When a subtask has a clear goal, scope, and acceptance criteria, it can hand execution to Cursor CLI using **Grok 4.6 / xhigh / fast** over ACP, handle questions, and review the result.
+Your **GPT-6 Astra budget in Codex is running low**. Your **Grok 4.6 allowance in Cursor still has room**. Put that spare capacity to work.
 
-Invoking the skill brings this collaboration option into the task. Codex decides when Cursor is useful as the work develops.
+**Cursourcing = Cursor + outsourcing.** Keep Astra focused on planning, judgment, and review. Let Codex hand useful subtasks to Cursor's Grok 4.6, follow the work, and bring the results back into your task.
 
-## Try it
+You stay in Codex. Both subscriptions get work to do.
 
-Requires Node.js 22+ and a logged-in Cursor CLI (`agent login`). The shipped `dist/server.mjs` contains its npm dependencies; installing the plugin does not require `npm install`.
+| Codex plans | Cursor executes | Codex reviews |
+| --- | --- | --- |
+| Chooses a useful subtask and supplies the context. | Works in the specified project directory and reports progress or questions. | Inspects the changes, checks the result, and follows up when needed. |
 
-Install from the [Cogine AI marketplace](https://github.com/cogine-ai/marketplace):
+Your main Codex model stays the one you selected. Cursor currently runs **Grok 4.6 · xhigh · fast**.
 
-```sh
+## Install
+
+**You'll need:** Codex with plugin support, Node.js 22+, and an installed, authenticated [Cursor CLI](https://cursor.com/docs/cli/overview). Run `agent login` if you haven't signed in. Cursor must have access to the configured Grok model.
+
+### 1. Add the Cogine AI Marketplace
+
+```bash
 codex plugin marketplace add cogine-ai/marketplace
+```
+
+Already added it? Refresh its catalog with `codex plugin marketplace upgrade cogine-ai`.
+
+### 2. Install Cursourcing
+
+In the Codex app, open **Plugins → Cogine AI → Cursourcing** and install it. Or use the CLI:
+
+```bash
 codex plugin add cursourcing@cogine-ai
 ```
 
-Start a new Codex task, open a project, and try:
+The runtime is bundled. Installation needs no repository clone, `npm install`, or build step.
 
-> Use $cursourcing to plan this task, use Cursor where helpful, and review the results.
+### 3. Give it a real task
 
-The full skill identifier is `$cursourcing:cursourcing`. This release targets Codex.
-
-The skill is normally discoverable and leaves Codex's native collaboration tools available. Its task brief is supplied by Codex and passed through unchanged. No Hooks are installed.
-
-## Behavior
-
-- `cwd` is explicit and reaches both the CLI process and ACP `session/new` / `session/load`.
-- Startup returns a task ID; initialization, execution and input requests remain observable.
-- Separate tasks run concurrently. Each task owns one Cursor process and conversation. Follow-up turns within that conversation run sequentially.
-- Cursor runs with workspace trust and its sandbox enabled. Tool permission requests are returned to Codex for a response; the bridge does not auto-approve them.
-- Model configuration is checked against the requested values. An unavailable model fails initialization instead of silently selecting another model.
-- The assistant report, tool events and stop reason are recorded separately from Codex's review. `idle` is not an acceptance verdict.
-- `resume` loads history and configuration. It does not automatically replay an interrupted prompt or undo file changes.
-- Tasks live as long as the MCP server. Closing that server interrupts active tasks and releases its owned processes. This version is not an independent background daemon and does not automatically wake an idle Codex task.
-- One runtime owns a live conversation. Another runtime can read its records, but cannot take over a live owner. Crash recovery may briefly wait for the filesystem lease to expire.
-
-## Integration
-
-Codex is the MCP client. This plugin is an MCP server and an ACP client. Cursor CLI is the ACP server:
+Start a new Codex task in your project and invoke **`$cursourcing:cursourcing`**:
 
 ```text
-Codex → MCP → cursourcing → ACP → agent acp
+Use $cursourcing to plan this task, delegate useful work to Cursor
+as it develops, and review the results.
 ```
 
-Cursor's `agent mcp` commands manage tools consumed by Cursor; they do not expose its agent as a local MCP server. A standalone MCP client can connect to this plugin for development or work in an existing Codex task whose tool inventory has not refreshed. Keep that client connected while tasks run. The normal installed path is Codex calling the plugin directly.
+Codex plans normally. It actively looks for useful work to delegate, including investigations whose implementation approach is still open. Invoking the skill doesn't require immediate delegation.
 
-The `.codex-plugin/plugin.json` manifest uses relative `cwd` and executable arguments in `.mcp.json`. Its legacy loader does not expand the newer Agent Plugins format's `${PLUGIN_ROOT}` placeholder.
+**[Browse all seven plugins in the Cogine AI Marketplace →](https://github.com/cogine-ai/marketplace#available-plugins)**
 
-## Local records and configuration
+## Give your spare Cursor capacity a job
 
-Cursor already stores ACP conversations. On the tested CLI version the default location is `~/.cursor/acp-sessions/<sessionId>/`, containing `meta.json` and `store.db` (SQLite may also use WAL/SHM companion files). The actual root respects `CURSOR_CONFIG_DIR` or `XDG_CONFIG_HOME`. This layout is an observed implementation detail; the plugin returns file paths only after checking that the session metadata matches the task directory.
+- **A scoped implementation.** Add an agreed feature in the relevant files, run the appropriate checks, and report what changed.
+- **An investigation.** Trace a failure, gather evidence, and bring findings back for Codex to assess.
+- **Independent work in parallel.** Run separate Cursor conversations for tasks that can proceed independently, using suitable directories or worktrees.
+- **A follow-up.** Keep the same Cursor conversation and ask it to address review findings or continue from its saved context.
 
-`session/new` returns a random session ID; it cannot be derived from the prompt or directory. Cursor also advertises `session/list` with a `cwd` filter. The plugin saves the exact returned ID and directory for recovery.
+Codex decides what to do directly and what to delegate as the task develops. Native Codex collaboration remains available.
 
-Default results contain compact progress/key events, pending requests, the latest assistant reply, and `native_session` references. New tasks keep only metadata, a 64 KiB latest-reply cache and a 256 KiB compact activity journal under `~/.local/state/cursourcing`. Raw tool inputs/outputs are not duplicated in this journal. Truncation and dropped event cursors are explicit. Existing legacy records are preserved; records across distinct tasks still accumulate.
+## Built for the handoff—and the way back
 
-Use `read_task` with `include_output: true` to page through the cached reply. Use `read_history` for detailed earlier messages and tool results from an idle task. It loads Cursor's saved conversation through ACP and returns a bounded JSONL text window; it sends no model prompt and writes no transcript copy. Each page reloads the conversation, so it has startup/IO cost and offsets are valid only while the conversation is unchanged. It returns the history Cursor can replay, not the original wire stream or a guarantee that every command's entire output was retained.
+| Capability | What it means in practice |
+| --- | --- |
+| Asynchronous execution | A task ID returns while Cursor starts. Codex can inspect progress and collect results later. |
+| Questions and permissions | Cursor requests come back to Codex so it can respond using the existing authorization or involve you. |
+| Compact results | Read progress, the latest reply, and key information first. Load detailed native history when needed. |
+| Session recovery | Reload a saved conversation and continue it. Recovery doesn't automatically rerun interrupted instructions. |
+| Review stays with Codex | A completed Cursor turn is a result to inspect, not an automatic acceptance decision. |
 
-Authentication responses and environment variables are not recorded. Native Cursor conversations remain managed by Cursor; the bridge does not remove them or impose a second full-history retention policy.
+## A few useful answers
 
-Optional environment variables: `CURSOURCING_BINARY` selects a CLI executable; `CURSOURCING_STATE_DIR` selects an isolated state directory. The default executable is `~/.local/bin/agent` when present, otherwise `cursor-agent` on PATH.
+**How does usage work?** Codex and Cursor use their own accounts and allowances. Cursourcing delegates work between them; it doesn't transfer tokens. Codex still uses capacity for coordination and review. The benefit depends on the task and how the work is divided.
 
-Upgrading from the `codex-cursor` personal preview: when its state directory already exists, Cursourcing continues using `~/.local/state/codex-cursor` so saved tasks remain discoverable. The previous `CODEX_CURSOR_BINARY` and `CODEX_CURSOR_STATE_DIR` settings remain supported; the new names take precedence. Existing task records and native Cursor sessions are preserved. Install Cursourcing first, then remove the old plugin to avoid running two copies.
+**Does this change my Codex model?** No. Astra is the motivating use case, but Cursourcing keeps whichever Codex model you select for the main task.
 
-## Development and verification
+**Does it force every task through Cursor?** No. The skill is normally discoverable, and Codex chooses when delegation helps. Cursourcing installs no Hooks and doesn't disable native subagents.
 
-```sh
-npm ci
-npm run build
-npm test
-npm run test:live
+**Will it keep working after Codex closes?** This version runs with its MCP server. If that process exits, active tasks are interrupted; saved conversations can be recovered. It doesn't independently wake an idle Codex task.
+
+**Which directory does Cursor use?** The absolute directory Codex passes for the subtask, including a worktree when appropriate. Cursourcing doesn't create worktrees automatically.
+
+**Can I choose another Cursor model?** This release uses Grok 4.6 with xhigh effort and fast enabled. An unavailable configuration fails explicitly.
+
+## Update
+
+```bash
+codex plugin marketplace upgrade cogine-ai
+codex plugin add cursourcing@cogine-ai
 ```
 
-`test:live` uses the installed Cursor account and creates temporary workspaces. It checks parallel tasks, a file edit, cancellation, and cross-process session recovery through the real MCP interface. It cleans up its own processes/workspaces and prints a verification report. It does not test automatic Codex routing decisions or every Cursor extension.
+Start a new task after updating to pick up the refreshed skill and tools.
 
-Automated tests cover the MCP entrypoint, concurrent tasks, requests, cancellation, recovery, compact storage, native-history replay, and preview configuration compatibility. Live reports may contain local workspace paths and session identifiers; keep them locally rather than publishing them.
+## Go deeper
 
-The source of truth is [cogine-ai/cursourcing](https://github.com/cogine-ai/cursourcing). The marketplace carries a release snapshot with the bundled runtime and skill, so users do not need npm dependencies or a build step.
+- [Runtime, permissions, configuration, and history](docs/runtime.md)
+- [Development and verification](docs/development.md)
+- [Icon and share card](docs/brand.md)
+- [Report a bug or suggest an improvement](https://github.com/cogine-ai/cursourcing/issues)
+- [Cogine AI Marketplace](https://github.com/cogine-ai/marketplace) — Cursourcing and the role-based skill collection.
 
-After building, export that snapshot with `node scripts/export-plugin.mjs <destination>`. Dependency license texts ship in `dist/THIRD_PARTY_NOTICES.md`.
-
-Runtime design references: T3 Code `CursorAdapter.ts`, `AcpSessionRuntime.ts`, and `ProviderService.ts` at commit `5ea6439816470288d3f2b6b43635fea41fbbb101`, plus [Cursor's ACP documentation](https://cursor.com/docs/cli/acp). The bridge is an independent implementation; no T3 source was copied.
+Built by [Cogine AI](https://github.com/cogine-ai). Know someone whose Codex runs out before their Cursor does? Send them this repo.

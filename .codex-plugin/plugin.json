@@ -1,29 +1,33 @@
 {
   "name": "cursourcing",
-  "version": "0.1.0",
-  "description": "Your Codex just hired Cursor.",
+  "version": "0.1.1",
+  "description": "Your Codex just hired Cursor. Tokenmaxxing across Codex and Cursor, with Codex planning and reviewing the work.",
   "author": {
     "name": "Cogine AI",
     "url": "https://github.com/cogine-ai"
   },
   "homepage": "https://github.com/cogine-ai/cursourcing",
   "repository": "https://github.com/cogine-ai/cursourcing",
-  "keywords": ["codex", "cursor", "acp", "delegation"],
+  "keywords": ["codex", "cursor", "tokenmaxxing", "astra", "grok", "delegation"],
   "skills": "./skills/",
   "interface": {
     "displayName": "Cursourcing",
-    "shortDescription": "Your Codex just hired Cursor.",
-    "longDescription": "Cursourcing combines Cursor and outsourcing. Codex plans with your selected model and can hand well-defined subtasks to Cursor Grok 4.6 xhigh fast, follow execution, and review results. Supports asynchronous tasks, concurrent conversations, follow-ups, and session recovery.",
+    "shortDescription": "Your Codex just hired Cursor. Tokenmaxxing, unlocked.",
+    "longDescription": "Tokenmaxxing for the Astra × Grok era. When your GPT-6 Astra budget in Codex runs low and your Grok 4.6 allowance in Cursor still has room, put that capacity to work. Cursourcing keeps your chosen Codex model in charge and encourages useful delegation to Cursor for investigation, implementation, debugging, and validation. Supports asynchronous work, concurrent tasks, follow-ups, and session recovery. Each service uses its own account and allowance.",
     "developerName": "Cogine AI",
     "websiteURL": "https://github.com/cogine-ai/cursourcing",
     "category": "Developer Tools",
+    "brandColor": "#F35B35",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png",
+    "logoDark": "./assets/icon.png",
     "capabilities": [
       "Read",
       "Write",
       "Orchestration"
     ],
     "defaultPrompt": [
-      "Use $cursourcing to plan this task, use Cursor where helpful, and review the results."
+      "Use $cursourcing to plan this task, delegate useful work to Cursor as it develops, and review the results."
     ]
   },
   "mcpServers": "./.mcp.json"
