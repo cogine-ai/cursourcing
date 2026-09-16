@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cursourcing"
+  short_description: "Your Codex just hired Cursor."
+  default_prompt: "Use $cursourcing to plan this task, use Cursor where helpful, and review the results."

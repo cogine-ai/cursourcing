@@ -1,0 +1,24 @@
+{
+  "name": "cursourcing",
+  "version": "0.1.0",
+  "description": "Your Codex just hired Cursor.",
+  "repository": { "type": "git", "url": "https://github.com/cogine-ai/cursourcing.git" },
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs",
+    "test:live": "node scripts/live-smoke.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "proper-lockfile": "4.1.2",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

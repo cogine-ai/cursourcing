@@ -1,0 +1,30 @@
+{
+  "name": "cursourcing",
+  "version": "0.1.0",
+  "description": "Your Codex just hired Cursor.",
+  "author": {
+    "name": "Cogine AI",
+    "url": "https://github.com/cogine-ai"
+  },
+  "homepage": "https://github.com/cogine-ai/cursourcing",
+  "repository": "https://github.com/cogine-ai/cursourcing",
+  "keywords": ["codex", "cursor", "acp", "delegation"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Cursourcing",
+    "shortDescription": "Your Codex just hired Cursor.",
+    "longDescription": "Cursourcing combines Cursor and outsourcing. Codex plans with your selected model and can hand well-defined subtasks to Cursor Grok 4.6 xhigh fast, follow execution, and review results. Supports asynchronous tasks, concurrent conversations, follow-ups, and session recovery.",
+    "developerName": "Cogine AI",
+    "websiteURL": "https://github.com/cogine-ai/cursourcing",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Write",
+      "Orchestration"
+    ],
+    "defaultPrompt": [
+      "Use $cursourcing to plan this task, use Cursor where helpful, and review the results."
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}
