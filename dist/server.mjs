@@ -38173,7 +38173,7 @@ var AcpClient = class {
   async initialize() {
     const info = await this.request("initialize", {
       protocolVersion: 1,
-      clientInfo: { name: "cursourcing", version: "0.1.3" },
+      clientInfo: { name: "cursourcing", version: "0.2.0" },
       clientCapabilities: {
         fs: { readTextFile: false, writeTextFile: false },
         terminal: false,
@@ -38236,6 +38236,7 @@ var EVENT_FIELDS = [
   "type",
   "state",
   "error",
+  "error_code",
   "stop_reason",
   "phase",
   "pid",
@@ -38283,11 +38284,11 @@ function clipValue(value) {
   }
   return value;
 }
-function parseDetail(detail) {
-  if (detail && typeof detail === "object") return detail;
-  if (typeof detail === "string") {
+function parseDetail(detail2) {
+  if (detail2 && typeof detail2 === "object") return detail2;
+  if (typeof detail2 === "string") {
     try {
-      const parsed = JSON.parse(detail);
+      const parsed = JSON.parse(detail2);
       return parsed && typeof parsed === "object" ? parsed : void 0;
     } catch {
       return void 0;
@@ -38304,8 +38305,8 @@ function suffixUtf8(text, maxBytes) {
 }
 function compactEvent(event) {
   if (!event || typeof event !== "object") return event;
-  const detail = parseDetail(event.detail);
-  const src = { ...detail, ...event };
+  const detail2 = parseDetail(event.detail);
+  const src = { ...detail2, ...event };
   if (src.prompt_fingerprint == null && src.fingerprint != null) src.prompt_fingerprint = src.fingerprint;
   if (src.tool_call_id == null && src.toolCallId != null) src.tool_call_id = src.toolCallId;
   const out = {};
@@ -38583,15 +38584,48 @@ async function replayHistory({
   }
 }
 
+// src/views.mjs
+function compactTask(task, { include_config = false } = {}) {
+  const view = Object.fromEntries(["task_id", "run_id", "state", "event_cursor"].map((key) => [key, task[key]]));
+  for (const key of ["stop_reason", "error", "error_code", "deduplicated"]) {
+    if (task[key] != null) view[key] = task[key];
+  }
+  if (task.pending_requests?.length) view.pending_requests = task.pending_requests;
+  if (include_config) {
+    view.permissions = task.permissions ?? "default";
+    if (task.effective_config) view.effective_config = task.effective_config;
+    else if (task.requested_config) view.requested_config = task.requested_config;
+  }
+  return view;
+}
+function compactOutput({ text, next_offset, total_chars, truncated }) {
+  return { text, next_offset, total_chars, truncated };
+}
+
+// src/transport-failure.mjs
+var DIAGNOSTIC_LIMIT = 8192;
+function transportFailure({ text, total_chars = text.length, truncated = false }) {
+  if (truncated || total_chars > DIAGNOSTIC_LIMIT || text.length !== total_chars) return null;
+  const lines = text.split(/\r?\n/).map((line) => line.trimEnd()).filter((line) => line.trim());
+  const [first, ...rest] = lines;
+  if (!first || rest.some((line) => !/^\s+at\s+\S/.test(line))) return null;
+  const retriable = /^Error: RetriableError: (?!\[internal\]).+$/;
+  const connection = /^Error: ConnectError: \[(unavailable|aborted|deadline_exceeded)\].*$/;
+  const server2 = "Something went wrong communicating with the server. Please try again.";
+  return retriable.test(first) || connection.test(first) || first === server2 ? first : null;
+}
+
 // src/tasks.mjs
 var ACTIVE = /* @__PURE__ */ new Set(["initializing", "resuming", "running", "awaiting_input", "cancelling"]);
 var DEFAULT_MODEL = { model: "grok-4.6", effort: "xhigh", fast: "true" };
 var errorText = (e) => e instanceof Error ? e.message : String(e);
 var digest = (text) => createHash("sha256").update(text).digest("hex");
 var TaskManager = class {
-  constructor({ store = new Store(), clientFactory = (args) => new AcpClient(args) } = {}) {
+  constructor({ store = new Store(), clientFactory = (args) => new AcpClient(args), watchFactory = watch } = {}) {
     this.store = store;
     this.clientFactory = clientFactory;
+    this.watchFactory = watchFactory;
+    this.waiters = /* @__PURE__ */ new Map();
     this.instance = randomUUID2();
     this.contexts = /* @__PURE__ */ new Map();
     this.histories = /* @__PURE__ */ new Map();
@@ -38603,8 +38637,18 @@ var TaskManager = class {
   state(ctx, state, extra = {}) {
     Object.assign(ctx.task, { state }, extra);
     this.event(ctx, "state", { state, ...extra });
+    setImmediate(() => {
+      for (const notify of this.waiters.get(ctx.task.task_id) ?? []) notify();
+    });
   }
-  snapshot(id2) {
+  paths(task) {
+    return {
+      native_session: nativeSessionReference(task),
+      log_path: this.store.journalPath(task),
+      output_path: this.store.outputPath(task)
+    };
+  }
+  snapshot(id2, { include_paths = true } = {}) {
     const record2 = this.store.load(id2), owner = this.store.owner(id2);
     const ownerAlive = !!owner && alive(owner.pid);
     const { initial_prompt, last_message_prompt, fingerprint, last_message_fingerprint, ...task } = record2;
@@ -38617,9 +38661,7 @@ var TaskManager = class {
       ...task,
       owner_alive: ownerAlive,
       owned_here: owner?.instance === this.instance,
-      native_session: nativeSessionReference(record2),
-      log_path: this.store.journalPath(record2),
-      output_path: this.store.outputPath(record2)
+      ...include_paths ? this.paths(record2) : {}
     };
   }
   async context(task) {
@@ -38784,7 +38826,7 @@ var TaskManager = class {
     if (ctx.cancelled) throw new Error("Task cancelled");
     this.store.resetOutput(ctx.task);
     ctx.replyNeedsReset = false;
-    this.state(ctx, "running", { error: null, stop_reason: null, progress: null });
+    this.state(ctx, "running", { error: null, error_code: null, stop_reason: null, progress: null });
     const result2 = await ctx.client.request("session/prompt", {
       sessionId: ctx.task.session_id,
       prompt: [{ type: "text", text: prompt2 }]
@@ -38792,6 +38834,15 @@ var TaskManager = class {
     ctx.pending.clear();
     ctx.task.pending_requests = [];
     const reason = result2.stopReason;
+    const failure2 = reason === "end_turn" && transportFailure(this.store.output(ctx.task, 0, DIAGNOSTIC_LIMIT));
+    if (failure2) {
+      this.state(ctx, "failed", {
+        stop_reason: reason,
+        error_code: "cursor_transport_error",
+        error: `Cursor reported a transport failure: ${failure2}`
+      });
+      return;
+    }
     this.state(ctx, reason === "end_turn" ? "idle" : reason === "cancelled" ? "cancelled" : "failed", {
       stop_reason: reason,
       error: ["end_turn", "cancelled"].includes(reason) ? null : `Cursor stopped: ${reason}`
@@ -38813,7 +38864,7 @@ var TaskManager = class {
     ctx.task.last_message_request_id = requestId;
     ctx.task.last_message_fingerprint = digest(prompt2);
     delete ctx.task.last_message_prompt;
-    this.state(ctx, "running", { error: null, stop_reason: null });
+    this.state(ctx, "running", { error: null, error_code: null, stop_reason: null });
     this.event(ctx, "submitted", { prompt_fingerprint: digest(prompt2) });
     this.launch(ctx, () => this.run(ctx, prompt2));
     return this.snapshot(id2);
@@ -38829,7 +38880,7 @@ var TaskManager = class {
     if (ctx.busy) return this.snapshot(id2);
     ctx.cancelled = false;
     ctx.task.pending_requests = [];
-    this.state(ctx, "resuming", { error: null });
+    this.state(ctx, "resuming", { error: null, error_code: null, stop_reason: null });
     this.launch(ctx, async () => {
       await this.setup(ctx, true);
       this.state(ctx, "idle");
@@ -38932,24 +38983,26 @@ var TaskManager = class {
       output: output2
     };
   }
-  async wait(ids, { after_cursors = {}, timeout_ms = 3e4, signal } = {}) {
+  async wait(ids, { after_cursors = {}, timeout_ms = 5e4, signal, detail: detail2 = "full" } = {}) {
     const ready = (task) => task.state === "awaiting_input" || !ACTIVE.has(task.state) && (task.event_cursor > (after_cursors[task.task_id] ?? 0) || // A dead owner cannot append an interruption event. Keep that failure visible.
     task.state === "interrupted" && !task.owner_alive);
     let timer, finish;
-    const watchers = [];
+    const watchers = [], subscriptions = [];
     const done = new Promise((resolve3, reject) => {
       finish = { resolve: resolve3, reject };
     });
     const check2 = (expired = false) => {
       try {
-        const tasks = ids.map((id2) => this.snapshot(id2)), actionable = tasks.some(ready);
+        const tasks = ids.map((id2) => this.snapshot(id2, { include_paths: false })), actionable = tasks.some(ready);
         if (!actionable && !expired) return;
         finish.resolve({ timed_out: !actionable, tasks: tasks.map((task) => {
           const after = after_cursors[task.task_id] ?? 0;
+          const unread = !ACTIVE.has(task.state) && task.event_cursor > after;
+          const output2 = this.store.output(task, 0, unread ? 8e3 : 0);
           return {
-            task,
+            task: detail2 === "full" ? { ...task, ...this.paths(task) } : compactTask(task, { include_config: unread }),
             next_cursor: Math.max(after, task.event_cursor),
-            output: this.store.output(task, 0, !ACTIVE.has(task.state) && task.event_cursor > after ? 8e3 : 0)
+            output: detail2 === "full" ? output2 : unread ? compactOutput(output2) : { text: "" }
           };
         }) });
       } catch (error62) {
@@ -38958,7 +39011,14 @@ var TaskManager = class {
     };
     const abort = () => finish.reject(new Error("Wait cancelled; Cursor tasks continue running"));
     try {
-      for (const id2 of ids) watchers.push(watch(this.store.dir(id2), () => check2()));
+      for (const id2 of new Set(ids)) {
+        let listeners = this.waiters.get(id2);
+        if (!listeners) this.waiters.set(id2, listeners = /* @__PURE__ */ new Set());
+        const notify = () => check2();
+        listeners.add(notify);
+        subscriptions.push([id2, notify]);
+        watchers.push(this.watchFactory(this.store.dir(id2), notify));
+      }
       if (signal?.aborted) abort();
       else signal?.addEventListener("abort", abort, { once: true });
       timer = setTimeout(() => check2(true), timeout_ms);
@@ -38968,6 +39028,11 @@ var TaskManager = class {
       clearTimeout(timer);
       watchers.forEach((w) => w.close());
       signal?.removeEventListener("abort", abort);
+      for (const [id2, notify] of subscriptions) {
+        const listeners = this.waiters.get(id2);
+        listeners?.delete(notify);
+        if (!listeners?.size) this.waiters.delete(id2);
+      }
     }
   }
   list(cwd) {
@@ -38993,9 +39058,10 @@ var TaskManager = class {
 
 // src/server.mjs
 var manager = new TaskManager();
-var server = new McpServer({ name: "cursourcing", version: "0.1.3" });
+var server = new McpServer({ name: "cursourcing", version: "0.2.0" });
 var id = external_exports.string().min(8).max(80);
 var prompt = external_exports.string().min(1).max(3e5);
+var detail = external_exports.enum(["compact", "full"]).default("compact").describe("Full metadata and paths are opt-in.");
 var result = (value) => ({ content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value });
 function tool(name, description, inputSchema, fn, readOnly = false) {
   server.registerTool(
@@ -39014,14 +39080,18 @@ function tool(name, description, inputSchema, fn, readOnly = false) {
     }
   );
 }
-tool("start_task", "Delegate a bounded coding or analysis task to Cursor Grok 4.6 xhigh fast. Returns a task ID immediately, including while initializing. Supply the current Codex workspace explicitly. Task text is passed through unchanged. Use wait/read_task to collect results; independent tasks can run concurrently.", {
+tool("start_task", "Delegate a complete work unit to Cursor Grok 4.6 xhigh fast, including investigation and self-checks. Supply the current workspace, objective, constraints and acceptance evidence. Returns compact status immediately; the prompt is unchanged. Use wait for delivery or blocking input.", {
   cwd: external_exports.string().describe("Absolute working directory or worktree path"),
   prompt,
+  detail,
   mode: external_exports.enum(["agent", "ask", "plan"]).default("agent"),
   permissions: external_exports.enum(["default", "full-access"]).default("default").describe("default keeps Cursor sandbox and approvals. full-access launches with --force --sandbox disabled; select only when the user has authorized unrestricted execution for this delegated work. This does not import Codex permissions; Cursor deny rules and team policies still apply."),
   request_id: external_exports.string().min(1).max(200).optional().describe("Stable unique key for this delegation; reuse on uncertain retries to avoid duplicate execution")
-}, (a) => manager.start(a));
-tool("read_task", "Read compact status, key events, pending requests, latest reply and native Cursor session references. idle/end_turn is not an acceptance verdict. Set include_output to page the cached reply; read_history retrieves earlier messages and detailed tool results from Cursor.", {
+}, async ({ detail: detail2, ...a }) => {
+  const task = await manager.start(a);
+  return detail2 === "full" ? task : compactTask(task, { include_config: true });
+});
+tool("read_task", "Read task details, progress, events, pending requests and native session references. idle is not acceptance. include_output pages the cached reply; read_history retrieves earlier messages and tool results.", {
   task_id: id,
   after_cursor: external_exports.number().int().nonnegative().default(0),
   max_events: external_exports.number().int().min(1).max(100).default(10),
@@ -39029,10 +39099,11 @@ tool("read_task", "Read compact status, key events, pending requests, latest rep
   output_offset: external_exports.number().int().nonnegative().default(0),
   max_output_chars: external_exports.number().int().min(1).max(5e4).default(8e3)
 }, ({ task_id, ...a }) => manager.read(task_id, a), true);
-tool("wait", "Wait for a turn to end, fail, stop, or need a response. Ordinary progress does not wake this wait. Returns status, pending requests and an unread completed reply, without event pages. Pass each next_cursor in after_cursors to avoid repeating completed results. Use read_task only when you need progress or more output. Timeout or cancellation of this wait leaves the tasks running.", {
+tool("wait", "Wait for completion, failure, stop or required input; progress stays local. Returns compact status and an unread reply. Pass next_cursor in after_cursors. Give timed outer wrappers a longer budget than timeout_ms; avoid short polling. Timeout/cancellation leaves execution running.", {
   task_ids: external_exports.array(id).min(1).max(16),
   after_cursors: external_exports.record(external_exports.string(), external_exports.number().int().nonnegative()).default({}),
-  timeout_ms: external_exports.number().int().min(0).max(6e4).default(3e4)
+  timeout_ms: external_exports.number().int().min(0).max(6e4).default(5e4),
+  detail
 }, ({ task_ids, ...a }, extra) => manager.wait(task_ids, { ...a, signal: extra.signal }), true);
 tool("send_message", "Continue an idle Cursor conversation with new context or follow-up work. A busy session must finish or be cancelled first; independent work can use another task. Returns before execution completes.", {
   task_id: id,

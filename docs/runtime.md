@@ -7,10 +7,11 @@
 - `cwd` is explicit and reaches both the CLI process and ACP `session/new` / `session/load`.
 - Startup returns a task ID; initialization, execution and input requests remain observable.
 - Separate tasks run concurrently. Each task owns one Cursor process and conversation. Follow-up turns within that conversation run sequentially.
-- `wait` returns for an ended turn, failure, interruption, cancellation, or pending request, not ordinary tool/progress events. It returns task snapshots and unread completed replies without event pages. Pass `next_cursor` into `after_cursors` to acknowledge completed results; unresolved requests and a lost runtime remain actionable. Timeouts return current status without stopping execution. The default remains 30 seconds, with a 60-second maximum.
+- In-process state changes notify local waits after the turn's promise settles; filesystem watching also observes other runtimes. Completion does not have to wait for an OS file notification or the next timeout check. Ordinary progress still does not end a wait.
+- `wait` returns for an ended turn, failure, interruption, cancellation, or pending request, not ordinary tool/progress events. Its compact default includes status and unread completed replies without event pages or native paths. Pass `next_cursor` into `after_cursors` to acknowledge completed results; unresolved requests and a lost runtime remain actionable. Timeouts return small status records without stopping execution. The default is 50 seconds, with a 60-second maximum. For timed outer wrappers, allow more time than the inner wait; increasing the inner timeout alone does not prevent extra host/model round trips. See [host waiting examples](../skills/cursourcing/references/waiting.md).
 - The `default` permission mode launches `agent --trust --sandbox enabled acp`, without `--force`. `start_task` can explicitly select `permissions: "full-access"`, mapping to `agent --trust --force --sandbox disabled acp` for work already authorized to run unrestricted. The selection is saved for follow-ups and `resume`; old tasks default to the original sandboxed mode. This maps a permission choice, not Codex's full permission policy. It does not change global configuration or add `--approve-mcps`. Cursor's explicit deny rules and organization controls remain in force. Any remaining permission, question or plan requests are returned to Codex; the bridge does not auto-answer them. History-only reads use the original sandboxed mode.
 - Model configuration is checked against the requested values. An unavailable model fails initialization instead of silently selecting another model.
-- The assistant report, tool events and stop reason are recorded separately from Codex's review. `idle` is not an acceptance verdict.
+- The assistant report, tool events and stop reason are recorded separately from Codex's review. `idle` is not an acceptance verdict. Known standalone Cursor transport diagnostics returned with `end_turn` become `failed` with `error_code: "cursor_transport_error"`; the reply, session, and file changes are retained without automatic retry. This narrow classifier excludes prose, quoted diagnostics, incomplete/truncated replies, and unknown error formats; it is not a general correctness check.
 - `resume` loads history and configuration. It does not automatically replay an interrupted prompt or undo file changes.
 - Tasks live as long as the MCP server. Closing that server interrupts active tasks and releases its owned processes. This version is not an independent background daemon and does not automatically wake an idle Codex task.
 - One runtime owns a live conversation. Another runtime can read its records, but cannot take over a live owner. Crash recovery may briefly wait for the filesystem lease to expire.
@@ -26,6 +27,27 @@ Codex → MCP → cursourcing → ACP → agent acp
 Cursor's `agent mcp` commands manage tools consumed by Cursor; they do not expose its agent as a local MCP server. A standalone MCP client can connect to this plugin for development or work in an existing Codex task whose tool inventory has not refreshed. Keep that client connected while tasks run. The normal installed path is Codex calling the plugin directly.
 
 The `.codex-plugin/plugin.json` manifest uses relative `cwd` and executable arguments in `.mcp.json`. Its legacy loader does not expand the newer Agent Plugins format's `${PLUGIN_ROOT}` placeholder.
+
+## Compact results and 0.2 migration
+
+`start_task` and `wait` now default to `detail: "compact"`. A start returns task identity,
+state, and requested configuration while initialization continues; it does not claim
+that configuration is already active. An unread ended turn includes the effective
+configuration when available, its reply, and output pagination/truncation fields.
+Pending requests retain their complete response options. Running or acknowledged
+results return `output: {text: ""}` without repeating fixed metadata or intermediate prose.
+
+Clients that read `cwd`, `session_id`, `log_path`, `native_session`, or other snapshot
+fields directly from start/wait should use `detail: "full"` or request `read_task`
+when those details are actually needed. The full view preserves the previous shape;
+existing saved tasks, permissions, cursors, and recovery remain compatible. Other
+tools keep their existing return shapes. This change to the default view is why
+the version advances to 0.2.0.
+
+MCP exposes both text `content` and `structuredContent` for client compatibility.
+A code-execution caller should emit one view, preferably `structuredContent` with
+a `content` fallback, instead of serializing the entire envelope. The plugin cannot
+control the host's wrapper timeout or automatically continue an ended model turn.
 
 ## Local records and configuration
 

@@ -3,6 +3,8 @@ import { watch } from 'node:fs';
 import { AcpClient } from './acp.mjs';
 import { Store, alive, workspace } from './store.mjs';
 import { nativeSessionReference, replayHistory } from './history.mjs';
+import { compactTask, compactOutput } from './views.mjs';
+import { DIAGNOSTIC_LIMIT, transportFailure } from './transport-failure.mjs';
 
 const ACTIVE = new Set(['initializing', 'resuming', 'running', 'awaiting_input', 'cancelling']);
 const DEFAULT_MODEL = { model: 'grok-4.6', effort: 'xhigh', fast: 'true' };
@@ -10,16 +12,24 @@ const errorText = (e) => e instanceof Error ? e.message : String(e);
 const digest = (text) => createHash('sha256').update(text).digest('hex');
 
 export class TaskManager {
-  constructor({ store = new Store(), clientFactory = (args) => new AcpClient(args) } = {}) {
-    this.store = store; this.clientFactory = clientFactory;
+  constructor({ store = new Store(), clientFactory = (args) => new AcpClient(args), watchFactory = watch } = {}) {
+    this.store = store; this.clientFactory = clientFactory; this.watchFactory = watchFactory;
+    this.waiters = new Map();
     this.instance = randomUUID(); this.contexts = new Map(); this.histories = new Map(); this.closed = false;
   }
   event(ctx, type, data = {}) { return this.store.append(ctx.task, type, data); }
   state(ctx, state, extra = {}) {
     Object.assign(ctx.task, { state }, extra);
     this.event(ctx, 'state', { state, ...extra });
+    // Let the turn's promise settle (including busy=false) before delivering its state.
+    // Local waits should not depend on filesystem notification latency.
+    setImmediate(() => { for (const notify of this.waiters.get(ctx.task.task_id) ?? []) notify(); });
   }
-  snapshot(id) {
+  paths(task) {
+    return { native_session: nativeSessionReference(task),
+      log_path: this.store.journalPath(task), output_path: this.store.outputPath(task) };
+  }
+  snapshot(id, { include_paths = true } = {}) {
     const record = this.store.load(id), owner = this.store.owner(id);
     const ownerAlive = !!owner && alive(owner.pid);
     const { initial_prompt, last_message_prompt, fingerprint, last_message_fingerprint, ...task } = record;
@@ -28,8 +38,7 @@ export class TaskManager {
       task.error = 'The owning plugin runtime stopped. Resume loads history; it does not replay the previous prompt.';
     }
     return { ...task, owner_alive: ownerAlive, owned_here: owner?.instance === this.instance,
-      native_session: nativeSessionReference(record),
-      log_path: this.store.journalPath(record), output_path: this.store.outputPath(record) };
+      ...(include_paths ? this.paths(record) : {}) };
   }
   async context(task) {
     if (this.closed) throw new Error('Plugin runtime is shutting down');
@@ -157,13 +166,19 @@ export class TaskManager {
   async run(ctx, prompt) {
     if (ctx.cancelled) throw new Error('Task cancelled');
     this.store.resetOutput(ctx.task); ctx.replyNeedsReset = false;
-    this.state(ctx, 'running', { error: null, stop_reason: null, progress: null });
+    this.state(ctx, 'running', { error: null, error_code: null, stop_reason: null, progress: null });
     const result = await ctx.client.request('session/prompt', {
       sessionId: ctx.task.session_id, prompt: [{ type: 'text', text: prompt }],
     }, 0);
     // stdout is consumed in order; updates preceding this RPC response are already persisted.
     ctx.pending.clear(); ctx.task.pending_requests = [];
     const reason = result.stopReason;
+    const failure = reason === 'end_turn' && transportFailure(this.store.output(ctx.task, 0, DIAGNOSTIC_LIMIT));
+    if (failure) {
+      this.state(ctx, 'failed', { stop_reason: reason, error_code: 'cursor_transport_error',
+        error: `Cursor reported a transport failure: ${failure}` });
+      return; // Retain the session and changes; never automatically replay a prompt.
+    }
     this.state(ctx, reason === 'end_turn' ? 'idle' : reason === 'cancelled' ? 'cancelled' : 'failed', {
       stop_reason: reason, error: ['end_turn', 'cancelled'].includes(reason) ? null : `Cursor stopped: ${reason}`,
     });
@@ -182,7 +197,7 @@ export class TaskManager {
     ctx.cancelled = false; ctx.task.run_id++;
     ctx.task.last_message_request_id = requestId; ctx.task.last_message_fingerprint = digest(prompt);
     delete ctx.task.last_message_prompt;
-    this.state(ctx, 'running', { error: null, stop_reason: null });
+    this.state(ctx, 'running', { error: null, error_code: null, stop_reason: null });
     this.event(ctx, 'submitted', { prompt_fingerprint: digest(prompt) });
     this.launch(ctx, () => this.run(ctx, prompt));
     return this.snapshot(id);
@@ -197,7 +212,7 @@ export class TaskManager {
     const ctx = existing ?? await this.context(task);
     if (ctx.busy) return this.snapshot(id);
     ctx.cancelled = false; ctx.task.pending_requests = [];
-    this.state(ctx, 'resuming', { error: null });
+    this.state(ctx, 'resuming', { error: null, error_code: null, stop_reason: null });
     this.launch(ctx, async () => { await this.setup(ctx, true); this.state(ctx, 'idle'); });
     return this.snapshot(id);
   }
@@ -258,33 +273,49 @@ export class TaskManager {
     return { task, ...page, next_cursor: next,
       has_more_events: next < task.event_cursor, output };
   }
-  async wait(ids, { after_cursors = {}, timeout_ms = 30000, signal } = {}) {
+  async wait(ids, { after_cursors = {}, timeout_ms = 50000, signal, detail = 'full' } = {}) {
     const ready = (task) => task.state === 'awaiting_input' ||
       (!ACTIVE.has(task.state) && (task.event_cursor > (after_cursors[task.task_id] ?? 0) ||
         // A dead owner cannot append an interruption event. Keep that failure visible.
         (task.state === 'interrupted' && !task.owner_alive)));
     let timer, finish;
-    const watchers = [];
+    const watchers = [], subscriptions = [];
     const done = new Promise((resolve, reject) => { finish = { resolve, reject }; });
     const check = (expired = false) => {
       try {
-        const tasks = ids.map((id) => this.snapshot(id)), actionable = tasks.some(ready);
+        const tasks = ids.map((id) => this.snapshot(id, { include_paths: false })), actionable = tasks.some(ready);
         if (!actionable && !expired) return;
         finish.resolve({ timed_out: !actionable, tasks: tasks.map((task) => {
           const after = after_cursors[task.task_id] ?? 0;
-          return { task, next_cursor: Math.max(after, task.event_cursor),
-            output: this.store.output(task, 0, !ACTIVE.has(task.state) && task.event_cursor > after ? 8000 : 0) };
+          const unread = !ACTIVE.has(task.state) && task.event_cursor > after;
+          const output = this.store.output(task, 0, unread ? 8000 : 0);
+          return { task: detail === 'full' ? { ...task, ...this.paths(task) } : compactTask(task, { include_config: unread }),
+            next_cursor: Math.max(after, task.event_cursor),
+            output: detail === 'full' ? output : unread ? compactOutput(output) : { text: '' } };
         }) });
       } catch (error) { finish.reject(error); }
     };
     const abort = () => finish.reject(new Error('Wait cancelled; Cursor tasks continue running'));
     try {
-      for (const id of ids) watchers.push(watch(this.store.dir(id), () => check()));
+      for (const id of new Set(ids)) {
+        let listeners = this.waiters.get(id);
+        if (!listeners) this.waiters.set(id, listeners = new Set());
+        const notify = () => check();
+        listeners.add(notify); subscriptions.push([id, notify]);
+        watchers.push(this.watchFactory(this.store.dir(id), notify));
+      }
       if (signal?.aborted) abort();
       else signal?.addEventListener('abort', abort, { once: true });
       timer = setTimeout(() => check(true), timeout_ms);
       check(); return await done;
-    } finally { clearTimeout(timer); watchers.forEach((w) => w.close()); signal?.removeEventListener('abort', abort); }
+    } finally {
+      clearTimeout(timer); watchers.forEach((w) => w.close()); signal?.removeEventListener('abort', abort);
+      for (const [id, notify] of subscriptions) {
+        const listeners = this.waiters.get(id);
+        listeners?.delete(notify);
+        if (!listeners?.size) this.waiters.delete(id);
+      }
+    }
   }
   list(cwd) { return this.store.list().filter((t) => !cwd || t.cwd === workspace(cwd)).map((t) => this.snapshot(t.task_id)); }
   async close() {

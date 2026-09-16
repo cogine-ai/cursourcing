@@ -1,8 +1,8 @@
 {
   "name": "cursourcing",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "license": "Apache-2.0",
-  "description": "Your Codex just hired Cursor. Tokenmaxxing across Codex and Cursor, with Codex planning and reviewing the work.",
+  "description": "Delegate complete work units to Cursor while Codex sets constraints, handles decisions, and verifies delivery.",
   "author": {
     "name": "Cogine AI",
     "url": "https://github.com/cogine-ai"
@@ -14,7 +14,7 @@
   "interface": {
     "displayName": "Cursourcing",
     "shortDescription": "Your Codex just hired Cursor. Tokenmaxxing, unlocked.",
-    "longDescription": "Tokenmaxxing for the Astra × Grok era. When your GPT-6 Astra budget in Codex runs low and your Grok 4.6 allowance in Cursor still has room, put that capacity to work. Cursourcing keeps your chosen Codex model in charge and encourages useful delegation to Cursor for investigation, implementation, debugging, and validation. Supports asynchronous work, concurrent tasks, follow-ups, and session recovery. Each service uses its own account and allowance.",
+    "longDescription": "Put available Cursor capacity to work on complete, verifiable tasks. Cursor handles investigation, implementation, and self-checks; your chosen Codex model supplies constraints, resolves blocking decisions, and verifies delivery. Compact results and quiet waits limit avoidable coordination. Supports concurrent tasks, follow-ups, and session recovery. Each service uses its own account and allowance; savings depend on the task and review effort.",
     "developerName": "Cogine AI",
     "websiteURL": "https://github.com/cogine-ai/cursourcing",
     "category": "Developer Tools",
@@ -28,7 +28,7 @@
       "Orchestration"
     ],
     "defaultPrompt": [
-      "Use $cursourcing to plan this task, delegate useful work to Cursor as it develops, and review the results."
+      "Use $cursourcing to give Cursor a complete work unit, minimize Codex coordination, and verify the delivered result."
     ]
   },
   "mcpServers": "./.mcp.json"

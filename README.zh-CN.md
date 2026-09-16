@@ -1,7 +1,7 @@
 [![Cursourcing — Your Codex just hired Cursor.](assets/hero.png)](https://github.com/cogine-ai/cursourcing)
 
 <p align="center">
-  <strong>让 Cursor 执行子任务，由 Codex 负责规划、跟进和验收。</strong><br />
+  <strong>让 Cursor 完成可验收的工作，由 Codex 提供约束、处理决策和验收。</strong><br />
   <a href="#安装">安装 Cursourcing</a> ·
   <a href="https://github.com/cogine-ai/marketplace">Cogine AI Marketplace</a> ·
   <a href="README.md">English</a>
@@ -11,13 +11,13 @@
 
 **Codex 里的 GPT-6 Astra 快不够用了，Cursor 里的 Grok 4.6 却还有余量。** 让这份余量干起活来。
 
-**Cursourcing = Cursor + outsourcing。** Astra 负责规划、判断和验收；适合委托的子任务，由 Codex 交给 Cursor 里的 Grok 4.6 执行，再把结果接回来。
+**Cursourcing = Cursor + outsourcing。** 让 Cursor 里的 Grok 4.6 完成一个可验收单元，包括调查、实现和自测。Codex 提供约束、处理阻塞决策，并检查交付结果。
 
-你继续在 Codex 里工作，两边的订阅都用起来。
+你继续在 Codex 里工作。目标是节省 Codex 用量时，减少重复调查和进度查询；实际收益仍取决于任务和审查工作量。
 
 | Codex 规划 | Cursor 执行 | Codex 验收 |
 | --- | --- | --- |
-| 选择适合委托的子任务，提供上下文。 | 在指定项目目录中执行，反馈进展和问题。 | 检查改动与结果，需要时继续追问或修正。 |
+| 确定工作单元、约束和验收条件。 | 调查、实现、自测，返回证据或阻塞问题。 | 检查实际改动与结果，发现具体问题后继续修正。 |
 
 Codex 主模型保持你的选择。当前 Cursor 执行配置为 **Grok 4.6 · xhigh · fast**。
 
@@ -48,11 +48,11 @@ codex plugin add cursourcing@cogine-ai
 在项目中新开一个 Codex 任务，引用 **`$cursourcing:cursourcing`**，例如：
 
 ```text
-使用 $cursourcing 规划这个任务，主动把适合的工作交给 Cursor，
-跟进执行并检查结果。
+使用 $cursourcing 把一个完整工作单元交给 Cursor，
+减少 Codex 的协调用量，并验证交付结果。
 ```
 
-Codex 会正常分析和规划，主动寻找可委托的工作；调查和方案探索也可以交给 Cursor，不必先确定每个实现细节。引用技能不意味着马上委托。
+调查和方案探索也可以交给 Cursor，不必先确定每个实现细节。Codex 在需要决策或交付验收时介入，有真正独立的工作时可以继续处理；引用技能不意味着马上委托。
 
 **[浏览 Cogine AI Marketplace 的全部七个插件 →](https://github.com/cogine-ai/marketplace#available-plugins)**
 
@@ -69,9 +69,9 @@ Codex 会正常分析和规划，主动寻找可委托的工作；调查和方�
 
 | 能力 | 实际体验 |
 | --- | --- |
-| 异步执行 | Cursor 启动时先返回任务 ID，Codex 可以继续检查进度、随后收取结果。 |
+| 异步执行 | Cursor 启动时先返回任务 ID，普通进度留在本地，需要决策或交付时收取结果。 |
 | 问题与权限请求 | 请求会返回给 Codex，由它根据已有授权处理，必要时再请你决定。 |
-| 精简结果 | 默认读取进度、最新回复和关键信息，详细原生历史按需加载。 |
+| 精简结果 | 启动和等待默认返回必要状态及未读交付说明，完整详情与原生历史按需加载。 |
 | 会话恢复 | 重新加载保存的对话，继续后续工作，不会自动重跑中断前的指令。 |
 | 主代理验收 | Cursor 一轮结束后，Codex 仍需检查实际改动与结果。 |
 
@@ -91,12 +91,17 @@ Codex 会正常分析和规划，主动寻找可委托的工作；调查和方�
 
 ## 更新
 
+**0.2.0** 调整了完整工作单元的委派方式，减少重复进度检查。`start_task` 和
+`wait` 默认返回精简结果；需要旧版完整字段的集成可使用 `detail: "full"` 或
+`read_task`，已保存的会话仍可恢复。详见[迁移说明](docs/runtime.md#compact-results-and-02-migration)。
+
 ```bash
 codex plugin marketplace upgrade cogine-ai
 codex plugin add cursourcing@cogine-ai
+codex plugin list --json
 ```
 
-更新后新开任务，以加载最新的技能与工具。
+确认 Cursourcing 显示版本 `0.2.0`，然后新开任务，以加载最新的技能与工具。
 
 ## 更多资料
 

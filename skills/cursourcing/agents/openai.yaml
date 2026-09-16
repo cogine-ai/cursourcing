@@ -1,4 +1,4 @@
 interface:
   display_name: "Cursourcing"
-  short_description: "Tokenmaxxing with Codex in charge and Cursor at work"
-  default_prompt: "Use $cursourcing to plan this task, delegate useful work to Cursor as it develops, and review the results."
+  short_description: "Delegate complete work to Cursor; verify in Codex"
+  default_prompt: "Use $cursourcing to give Cursor a complete work unit, minimize Codex coordination, and verify the delivered result."

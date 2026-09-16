@@ -9,7 +9,7 @@ const REPLY_LIMIT = 64 * 1024;
 const STRING_LIMIT = 2000;
 const LOCATION_LIMIT = 10;
 const EVENT_FIELDS = [
-  'seq', 'at', 'run_id', 'type', 'state', 'error', 'stop_reason', 'phase', 'pid',
+  'seq', 'at', 'run_id', 'type', 'state', 'error', 'error_code', 'stop_reason', 'phase', 'pid',
   'request_id', 'method', 'session_id', 'effective_config', 'requested_config',
   'tool_call_id', 'title', 'status', 'kind', 'locations', 'cwd', 'prompt_fingerprint',
 ];

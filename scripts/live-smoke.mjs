@@ -28,7 +28,8 @@ async function collect(client, ids) {
   const deadline = Date.now() + 600000;
   while (remaining.size) {
     if (Date.now() > deadline) throw new Error('Live integration test exceeded its ten-minute deadline');
-    const result = await call(client, 'wait', { task_ids: [...remaining], after_cursors: cursors, timeout_ms: 30000 });
+    // This verification script inspects native session IDs and journal paths.
+    const result = await call(client, 'wait', { task_ids: [...remaining], after_cursors: cursors, timeout_ms: 30000, detail: 'full' });
     for (const item of result.tasks) {
       const task = item.task, id = task.task_id; cursors[id] = item.next_cursor;
       if (states.get(id) !== task.state) { log('task', { task_id: id, state: task.state }); states.set(id, task.state); }

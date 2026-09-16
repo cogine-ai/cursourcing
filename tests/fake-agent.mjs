@@ -60,6 +60,10 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     }
     if (prompt === 'MOCK:exit') return process.exit(7);
     if (prompt === 'MOCK:refuse') return finish('Cannot comply', 'refusal');
+    if (prompt.startsWith('MOCK:chunks:')) {
+      for (const chunk of JSON.parse(prompt.slice('MOCK:chunks:'.length))) text(chunk);
+      return finish('');
+    }
     if (prompt === 'MOCK:compact') {
       text('Earlier progress that should not become the final reply');
       send({ method: 'session/update', params: { sessionId: session.id, update: {

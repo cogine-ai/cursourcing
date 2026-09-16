@@ -1,7 +1,7 @@
 [![Cursourcing — Your Codex just hired Cursor.](assets/hero.png)](https://github.com/cogine-ai/cursourcing)
 
 <p align="center">
-  <strong>Delegate subtasks to Cursor CLI while Codex stays in charge.</strong><br />
+  <strong>Delegate complete work to Cursor CLI; verify delivery in Codex.</strong><br />
   <a href="#install">Install Cursourcing</a> ·
   <a href="https://github.com/cogine-ai/marketplace">Cogine AI Marketplace</a> ·
   <a href="README.zh-CN.md">中文</a>
@@ -11,13 +11,13 @@
 
 Your **GPT-6 Astra budget in Codex is running low**. Your **Grok 4.6 allowance in Cursor still has room**. Put that spare capacity to work.
 
-**Cursourcing = Cursor + outsourcing.** Keep Astra focused on planning, judgment, and review. Let Codex hand useful subtasks to Cursor's Grok 4.6, follow the work, and bring the results back into your task.
+**Cursourcing = Cursor + outsourcing.** Give Cursor's Grok 4.6 a complete work unit, including investigation and self-checks. Codex supplies constraints, handles blocking decisions, and verifies the delivered result.
 
-You stay in Codex. Both subscriptions get work to do.
+You stay in Codex. When saving Codex usage is the goal, the workflow limits repeated investigation and progress checks; actual savings depend on the task and review effort.
 
 | Codex plans | Cursor executes | Codex reviews |
 | --- | --- | --- |
-| Chooses a useful subtask and supplies the context. | Works in the specified project directory and reports progress or questions. | Inspects the changes, checks the result, and follows up when needed. |
+| Defines the work unit, constraints, and acceptance criteria. | Investigates, implements, self-checks, and returns evidence or blocking questions. | Inspects actual changes, checks the result, and requests specific corrections when needed. |
 
 Your main Codex model stays the one you selected. Cursor currently runs **Grok 4.6 · xhigh · fast**.
 
@@ -48,11 +48,11 @@ The runtime is bundled. Installation needs no repository clone, `npm install`, o
 Start a new Codex task in your project and invoke **`$cursourcing:cursourcing`**:
 
 ```text
-Use $cursourcing to plan this task, delegate useful work to Cursor
-as it develops, and review the results.
+Use $cursourcing to give Cursor a complete work unit,
+minimize Codex coordination, and verify the delivered result.
 ```
 
-Codex plans normally. It actively looks for useful work to delegate, including investigations whose implementation approach is still open. Invoking the skill doesn't require immediate delegation.
+Cursor can investigate an open implementation approach. Codex intervenes for blocking decisions and delivery review, while continuing genuinely independent work when useful. Invoking the skill doesn't require immediate delegation.
 
 **[Browse all seven plugins in the Cogine AI Marketplace →](https://github.com/cogine-ai/marketplace#available-plugins)**
 
@@ -69,9 +69,9 @@ Codex decides what to do directly and what to delegate as the task develops. Nat
 
 | Capability | What it means in practice |
 | --- | --- |
-| Asynchronous execution | A task ID returns while Cursor starts. Codex can inspect progress and collect results later. |
+| Asynchronous execution | A task ID returns while Cursor starts. Ordinary progress stays local; Codex collects delivery or blocking decisions. |
 | Questions and permissions | Cursor requests come back to Codex so it can respond using the existing authorization or involve you. |
-| Compact results | Read progress, the latest reply, and key information first. Load detailed native history when needed. |
+| Compact results | Start and wait return necessary status and unread delivery reports. Request full details and native history when needed. |
 | Session recovery | Reload a saved conversation and continue it. Recovery doesn't automatically rerun interrupted instructions. |
 | Review stays with Codex | A completed Cursor turn is a result to inspect, not an automatic acceptance decision. |
 
@@ -91,12 +91,19 @@ Codex decides what to do directly and what to delegate as the task develops. Nat
 
 ## Update
 
+**0.2.0** focuses delegation on complete work units and reduces repeated progress
+checks. `start_task` and `wait` now return compact results by default. Integrations
+that need the previous snapshot fields can use `detail: "full"` or `read_task`;
+saved sessions remain recoverable. See the [migration notes](docs/runtime.md#compact-results-and-02-migration).
+
 ```bash
 codex plugin marketplace upgrade cogine-ai
 codex plugin add cursourcing@cogine-ai
+codex plugin list --json
 ```
 
-Start a new task after updating to pick up the refreshed skill and tools.
+Confirm that Cursourcing reports version `0.2.0`, then start a new task to pick up
+the refreshed skill and tools.
 
 ## Go deeper
 
