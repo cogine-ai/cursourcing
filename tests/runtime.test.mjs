@@ -11,14 +11,17 @@ const fixture = resolve('tests/fake-agent.mjs');
 function harness(t) {
   const root = mkdtempSync(join(tmpdir(), 'cursor-runtime-test-'));
   const cwd = join(root, 'workspace'); mkdirSync(cwd);
-  const state = join(root, 'state'); const managers = [];
+  const state = join(root, 'state'); const managers = [], launches = [];
   const create = () => {
     const manager = new TaskManager({ store: new Store(state),
-      clientFactory: (args) => new AcpClient({ ...args, command: process.execPath, args: [fixture] }) });
+      clientFactory: (args) => {
+        launches.push(args.permissions);
+        return new AcpClient({ ...args, command: process.execPath, args: [fixture] });
+      } });
     managers.push(manager); return manager;
   };
   t.after(async () => { await Promise.all(managers.map((m) => m.close())); rmSync(root, { recursive: true, force: true }); });
-  return { manager: create(), create, cwd, state };
+  return { manager: create(), create, cwd, state, launches };
 }
 async function until(manager, id, state) {
   let cursor = 0;
@@ -138,4 +141,102 @@ test('immediate cancellation and missing executable do not leave pending work', 
   }
   assert.equal(last.task.state, 'failed');
   await broken.close();
+});
+
+test('wait skips progress pages and delivers the completed report in one response', { timeout: 6000 }, async (t) => {
+  const { manager, cwd } = harness(t);
+  const started = await manager.start({ cwd, prompt: 'MOCK:progress' });
+  const result = await manager.wait([started.task_id], { timeout_ms: 2000 });
+  const item = result.tasks[0];
+  assert.equal(result.timed_out, false);
+  assert.equal(item.task.state, 'idle');
+  assert.equal(item.output.text, 'FINAL_REPORT');
+  assert.equal(item.next_cursor, item.task.event_cursor);
+  assert.equal(item.events, undefined);
+  const progress = manager.read(started.task_id, { after_cursor: 0, max_events: 100 });
+  assert.equal(progress.events.filter((e) => e.type === 'tool').length, 26);
+});
+
+test('progress remains readable while a quiet wait times out without stopping execution', { timeout: 6000 }, async (t) => {
+  const { manager, cwd } = harness(t);
+  const started = await manager.start({ cwd, prompt: 'MOCK:progress-hold' });
+  await until(manager, started.task_id, 'running');
+  const result = await manager.wait([started.task_id], { timeout_ms: 30 });
+  assert.equal(result.timed_out, true);
+  assert.equal(result.tasks[0].task.state, 'running');
+  assert.equal(result.tasks[0].output.text, '');
+  assert.equal(result.tasks[0].events, undefined);
+  const progress = manager.read(started.task_id, { max_events: 100, include_output: true });
+  assert.equal(progress.output.text, 'Still working');
+  assert.equal(progress.events.filter((e) => e.type === 'tool').length, 25);
+});
+
+test('seen completion does not wake a multi-task wait; cancellation and new turns still do', { timeout: 6000 }, async (t) => {
+  const { manager, cwd } = harness(t);
+  const [a, b] = await Promise.all([
+    manager.start({ cwd, prompt: 'MOCK:progress' }), manager.start({ cwd, prompt: 'MOCK:hold' }),
+  ]);
+  const done = await until(manager, a.task_id, 'idle');
+  await until(manager, b.task_id, 'running');
+  const after_cursors = { [a.task_id]: done.next_cursor, [b.task_id]: manager.snapshot(b.task_id).event_cursor };
+  const quiet = await manager.wait([a.task_id, b.task_id], { after_cursors, timeout_ms: 30 });
+  assert.equal(quiet.timed_out, true);
+  assert.equal(quiet.tasks[0].output.text, '');
+  await manager.cancel(b.task_id);
+  const cancelled = await manager.wait([a.task_id, b.task_id], { after_cursors, timeout_ms: 2000 });
+  assert.equal(cancelled.timed_out, false);
+  assert.equal(cancelled.tasks[1].task.state, 'cancelled');
+  manager.send(a.task_id, 'MOCK:permission', 'second-turn');
+  const pending = await manager.wait([a.task_id], { after_cursors, timeout_ms: 2000 });
+  assert.equal(pending.tasks[0].task.state, 'awaiting_input');
+  const again = await manager.wait([a.task_id], {
+    after_cursors: { [a.task_id]: pending.tasks[0].next_cursor }, timeout_ms: 2000,
+  });
+  assert.equal(again.timed_out, false);
+  const request = again.tasks[0].task.pending_requests[0];
+  manager.respond(a.task_id, request.request_id, { outcome: { outcome: 'selected', optionId: 'allow-once' } });
+  const resumed = await manager.wait([a.task_id], {
+    after_cursors: { [a.task_id]: again.tasks[0].next_cursor }, timeout_ms: 2000,
+  });
+  assert.equal(resumed.tasks[0].task.state, 'idle');
+  assert.match(resumed.tasks[0].output.text, /allow-once/);
+});
+
+test('a missing runtime owner remains visible even when its last event was already read', async (t) => {
+  const { manager, cwd } = harness(t);
+  const task = { task_id: 'task-orphaned-wait', cwd, state: 'running', run_id: 1, event_cursor: 1, pending_requests: [] };
+  manager.store.create(task);
+  const result = await manager.wait([task.task_id], { after_cursors: { [task.task_id]: 1 }, timeout_ms: 100 });
+  assert.equal(result.timed_out, false);
+  assert.equal(result.tasks[0].task.state, 'interrupted');
+  assert.match(result.tasks[0].task.error, /runtime stopped/);
+});
+
+test('execution permissions persist on resume, isolate retries, and do not widen history reads', { timeout: 6000 }, async (t) => {
+  const { manager, create, cwd, launches } = harness(t);
+  const input = { cwd, prompt: 'MOCK:remember:PERMISSIONS', request_id: 'permission-mode', permissions: 'full-access' };
+  const started = await manager.start(input);
+  await until(manager, started.task_id, 'idle');
+  assert.equal(launches.at(-1), 'full-access');
+  assert.equal((await manager.start(input)).deduplicated, true);
+  await assert.rejects(manager.start({ ...input, permissions: 'default' }), /different task/);
+  await manager.history(started.task_id);
+  assert.equal(launches.at(-1), undefined);
+  await manager.close();
+  const replacement = create();
+  await replacement.resume(started.task_id);
+  await until(replacement, started.task_id, 'idle');
+  assert.equal(launches.at(-1), 'full-access');
+  assert.equal(replacement.snapshot(started.task_id).permissions, 'full-access');
+  replacement.send(started.task_id, 'MOCK:recall', 'permissions-followup');
+  assert.equal((await until(replacement, started.task_id, 'idle')).output.text, 'PERMISSIONS');
+
+  const old = await replacement.start({ cwd, prompt: 'MOCK:remember:OLD' });
+  await until(replacement, old.task_id, 'idle');
+  const record = replacement.store.load(old.task_id);
+  delete record.permissions; replacement.store.save(record);
+  await replacement.close();
+  const legacy = create(); await legacy.resume(old.task_id);
+  await until(legacy, old.task_id, 'idle');
+  assert.equal(launches.at(-1), 'default');
 });

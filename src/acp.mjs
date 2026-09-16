@@ -12,8 +12,14 @@ export function cursorBinary() {
 }
 
 // Owns one CLI process and one root ACP session. It outlives individual MCP calls.
+export function cursorArgs(permissions = 'default') {
+  if (permissions === 'full-access') return ['--trust', '--force', '--sandbox', 'disabled', 'acp'];
+  if (permissions === 'default') return ['--trust', '--sandbox', 'enabled', 'acp'];
+  throw new Error('permissions must be default or full-access');
+}
+
 export class AcpClient {
-  constructor({ cwd, command = cursorBinary(), args = ['--trust', '--sandbox', 'enabled', 'acp'], onUpdate, onRequest, onExit }) {
+  constructor({ cwd, permissions = 'default', command = cursorBinary(), args = cursorArgs(permissions), onUpdate, onRequest, onExit }) {
     this.pending = new Map(); this.sequence = 0; this.closed = false;
     this.child = spawn(command, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
     this.onUpdate = onUpdate; this.onRequest = onRequest; this.onExit = onExit;
@@ -76,7 +82,7 @@ export class AcpClient {
   }
   async initialize() {
     const info = await this.request('initialize', {
-      protocolVersion: 1, clientInfo: { name: 'cursourcing', version: '0.1.2' },
+      protocolVersion: 1, clientInfo: { name: 'cursourcing', version: '0.1.3' },
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false,
         _meta: { parameterizedModelPicker: true } },
     });

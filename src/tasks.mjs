@@ -53,13 +53,16 @@ export class TaskManager {
       await ctx.client?.close(); ctx.client = null;
     }).finally(() => { ctx.busy = false; });
   }
-  async start({ cwd, prompt, request_id, mode = 'agent' }) {
+  async start({ cwd, prompt, request_id, mode = 'agent', permissions = 'default' }) {
     cwd = workspace(cwd);
     if (!prompt.trim()) throw new Error('prompt must not be empty');
-    const fingerprint = createHash('sha256').update(JSON.stringify({ cwd, prompt, mode })).digest('hex');
+    if (!['default', 'full-access'].includes(permissions)) throw new Error('permissions must be default or full-access');
+    // Keep existing default-mode retry keys compatible with saved tasks.
+    const fingerprint = createHash('sha256').update(JSON.stringify({ cwd, prompt, mode,
+      ...(permissions === 'default' ? {} : { permissions }) })).digest('hex');
     const id = request_id ? `task-${createHash('sha256').update(`${cwd}\0${request_id}`).digest('hex').slice(0, 32)}` : randomUUID();
     const task = { task_id: id, request_id, fingerprint, cwd, mode, storage_version: 2,
-      requested_config: { ...DEFAULT_MODEL, mode }, state: 'initializing', event_cursor: 0,
+      permissions, requested_config: { ...DEFAULT_MODEL, mode }, state: 'initializing', event_cursor: 0,
       run_id: 1, session_id: null, created_at: new Date().toISOString(), pending_requests: [] };
     if (!this.store.create(task)) {
       const existing = this.store.load(id);
@@ -74,7 +77,7 @@ export class TaskManager {
   async setup(ctx, resume) {
     if (ctx.cancelled || this.closed) throw new Error('Task cancelled before initialization');
     ctx.loading = true;
-    ctx.client = this.clientFactory({ cwd: ctx.task.cwd,
+    ctx.client = this.clientFactory({ cwd: ctx.task.cwd, permissions: ctx.task.permissions ?? 'default',
       onUpdate: (params) => this.update(ctx, params),
       onRequest: (request) => this.openRequest(ctx, request),
       onExit: () => {
@@ -256,23 +259,30 @@ export class TaskManager {
       has_more_events: next < task.event_cursor, output };
   }
   async wait(ids, { after_cursors = {}, timeout_ms = 30000, signal } = {}) {
-    const terminal = (s) => !ACTIVE.has(s) || s === 'awaiting_input';
+    const ready = (task) => task.state === 'awaiting_input' ||
+      (!ACTIVE.has(task.state) && (task.event_cursor > (after_cursors[task.task_id] ?? 0) ||
+        // A dead owner cannot append an interruption event. Keep that failure visible.
+        (task.state === 'interrupted' && !task.owner_alive)));
     let timer, finish;
     const watchers = [];
     const done = new Promise((resolve, reject) => { finish = { resolve, reject }; });
-    const collect = () => ids.map((id) => this.read(id, { after_cursor: after_cursors[id] ?? 0, suppress_seen_output: true }));
-    const check = () => {
+    const check = (expired = false) => {
       try {
-        const tasks = collect();
-        if (tasks.some((r) => terminal(r.task.state) || r.events.length)) finish.resolve({ tasks, timed_out: false });
+        const tasks = ids.map((id) => this.snapshot(id)), actionable = tasks.some(ready);
+        if (!actionable && !expired) return;
+        finish.resolve({ timed_out: !actionable, tasks: tasks.map((task) => {
+          const after = after_cursors[task.task_id] ?? 0;
+          return { task, next_cursor: Math.max(after, task.event_cursor),
+            output: this.store.output(task, 0, !ACTIVE.has(task.state) && task.event_cursor > after ? 8000 : 0) };
+        }) });
       } catch (error) { finish.reject(error); }
     };
     const abort = () => finish.reject(new Error('Wait cancelled; Cursor tasks continue running'));
     try {
-      for (const id of ids) watchers.push(watch(this.store.dir(id), check));
+      for (const id of ids) watchers.push(watch(this.store.dir(id), () => check()));
       if (signal?.aborted) abort();
       else signal?.addEventListener('abort', abort, { once: true });
-      timer = setTimeout(() => { try { finish.resolve({ tasks: collect(), timed_out: true }); } catch (e) { finish.reject(e); } }, timeout_ms);
+      timer = setTimeout(() => check(true), timeout_ms);
       check(); return await done;
     } finally { clearTimeout(timer); watchers.forEach((w) => w.close()); signal?.removeEventListener('abort', abort); }
   }

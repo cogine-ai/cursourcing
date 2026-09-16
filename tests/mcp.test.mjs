@@ -48,6 +48,17 @@ test('bundled MCP server exposes tools and recovers a session across server rest
     await call(two, 'resume', { task_id: task.task_id }); await idle(two, task.task_id);
     await call(two, 'send_message', { task_id: task.task_id, prompt: 'MOCK:recall', request_id: 'recall' });
     assert.equal((await idle(two, task.task_id)).output.text, 'MCP_TOKEN');
+    const noisy = await call(two, 'start_task', { cwd, prompt: 'MOCK:progress', permissions: 'full-access' });
+    const quiet = await call(two, 'wait', { task_ids: [noisy.task_id], timeout_ms: 2000 });
+    assert.equal(quiet.timed_out, false);
+    assert.equal(quiet.tasks[0].task.permissions, 'full-access');
+    assert.equal(quiet.tasks[0].task.state, 'idle');
+    assert.equal(quiet.tasks[0].output.text, 'FINAL_REPORT');
+    assert.equal(quiet.tasks[0].events, undefined);
+    const seen = await call(two, 'wait', { task_ids: [noisy.task_id],
+      after_cursors: { [noisy.task_id]: quiet.tasks[0].next_cursor }, timeout_ms: 20 });
+    assert.equal(seen.timed_out, true);
+    assert.equal(seen.tasks[0].output.text, '');
   } finally {
     await Promise.all(clients.map((client) => client.close())); rmSync(root, { recursive: true, force: true });
   }

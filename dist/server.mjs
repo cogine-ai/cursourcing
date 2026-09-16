@@ -38076,8 +38076,13 @@ function cursorBinary() {
   const installed = join(homedir(), ".local/bin/agent");
   return existsSync(installed) ? installed : "cursor-agent";
 }
+function cursorArgs(permissions = "default") {
+  if (permissions === "full-access") return ["--trust", "--force", "--sandbox", "disabled", "acp"];
+  if (permissions === "default") return ["--trust", "--sandbox", "enabled", "acp"];
+  throw new Error("permissions must be default or full-access");
+}
 var AcpClient = class {
-  constructor({ cwd, command = cursorBinary(), args = ["--trust", "--sandbox", "enabled", "acp"], onUpdate, onRequest, onExit }) {
+  constructor({ cwd, permissions = "default", command = cursorBinary(), args = cursorArgs(permissions), onUpdate, onRequest, onExit }) {
     this.pending = /* @__PURE__ */ new Map();
     this.sequence = 0;
     this.closed = false;
@@ -38168,7 +38173,7 @@ var AcpClient = class {
   async initialize() {
     const info = await this.request("initialize", {
       protocolVersion: 1,
-      clientInfo: { name: "cursourcing", version: "0.1.2" },
+      clientInfo: { name: "cursourcing", version: "0.1.3" },
       clientCapabilities: {
         fs: { readTextFile: false, writeTextFile: false },
         terminal: false,
@@ -38643,10 +38648,16 @@ var TaskManager = class {
       ctx.busy = false;
     });
   }
-  async start({ cwd, prompt: prompt2, request_id, mode = "agent" }) {
+  async start({ cwd, prompt: prompt2, request_id, mode = "agent", permissions = "default" }) {
     cwd = workspace(cwd);
     if (!prompt2.trim()) throw new Error("prompt must not be empty");
-    const fingerprint = createHash("sha256").update(JSON.stringify({ cwd, prompt: prompt2, mode })).digest("hex");
+    if (!["default", "full-access"].includes(permissions)) throw new Error("permissions must be default or full-access");
+    const fingerprint = createHash("sha256").update(JSON.stringify({
+      cwd,
+      prompt: prompt2,
+      mode,
+      ...permissions === "default" ? {} : { permissions }
+    })).digest("hex");
     const id2 = request_id ? `task-${createHash("sha256").update(`${cwd}\0${request_id}`).digest("hex").slice(0, 32)}` : randomUUID2();
     const task = {
       task_id: id2,
@@ -38655,6 +38666,7 @@ var TaskManager = class {
       cwd,
       mode,
       storage_version: 2,
+      permissions,
       requested_config: { ...DEFAULT_MODEL, mode },
       state: "initializing",
       event_cursor: 0,
@@ -38681,6 +38693,7 @@ var TaskManager = class {
     ctx.loading = true;
     ctx.client = this.clientFactory({
       cwd: ctx.task.cwd,
+      permissions: ctx.task.permissions ?? "default",
       onUpdate: (params2) => this.update(ctx, params2),
       onRequest: (request) => this.openRequest(ctx, request),
       onExit: () => {
@@ -38920,33 +38933,35 @@ var TaskManager = class {
     };
   }
   async wait(ids, { after_cursors = {}, timeout_ms = 3e4, signal } = {}) {
-    const terminal = (s) => !ACTIVE.has(s) || s === "awaiting_input";
+    const ready = (task) => task.state === "awaiting_input" || !ACTIVE.has(task.state) && (task.event_cursor > (after_cursors[task.task_id] ?? 0) || // A dead owner cannot append an interruption event. Keep that failure visible.
+    task.state === "interrupted" && !task.owner_alive);
     let timer, finish;
     const watchers = [];
     const done = new Promise((resolve3, reject) => {
       finish = { resolve: resolve3, reject };
     });
-    const collect = () => ids.map((id2) => this.read(id2, { after_cursor: after_cursors[id2] ?? 0, suppress_seen_output: true }));
-    const check2 = () => {
+    const check2 = (expired = false) => {
       try {
-        const tasks = collect();
-        if (tasks.some((r) => terminal(r.task.state) || r.events.length)) finish.resolve({ tasks, timed_out: false });
+        const tasks = ids.map((id2) => this.snapshot(id2)), actionable = tasks.some(ready);
+        if (!actionable && !expired) return;
+        finish.resolve({ timed_out: !actionable, tasks: tasks.map((task) => {
+          const after = after_cursors[task.task_id] ?? 0;
+          return {
+            task,
+            next_cursor: Math.max(after, task.event_cursor),
+            output: this.store.output(task, 0, !ACTIVE.has(task.state) && task.event_cursor > after ? 8e3 : 0)
+          };
+        }) });
       } catch (error62) {
         finish.reject(error62);
       }
     };
     const abort = () => finish.reject(new Error("Wait cancelled; Cursor tasks continue running"));
     try {
-      for (const id2 of ids) watchers.push(watch(this.store.dir(id2), check2));
+      for (const id2 of ids) watchers.push(watch(this.store.dir(id2), () => check2()));
       if (signal?.aborted) abort();
       else signal?.addEventListener("abort", abort, { once: true });
-      timer = setTimeout(() => {
-        try {
-          finish.resolve({ tasks: collect(), timed_out: true });
-        } catch (e) {
-          finish.reject(e);
-        }
-      }, timeout_ms);
+      timer = setTimeout(() => check2(true), timeout_ms);
       check2();
       return await done;
     } finally {
@@ -38978,7 +38993,7 @@ var TaskManager = class {
 
 // src/server.mjs
 var manager = new TaskManager();
-var server = new McpServer({ name: "cursourcing", version: "0.1.2" });
+var server = new McpServer({ name: "cursourcing", version: "0.1.3" });
 var id = external_exports.string().min(8).max(80);
 var prompt = external_exports.string().min(1).max(3e5);
 var result = (value) => ({ content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value });
@@ -39003,6 +39018,7 @@ tool("start_task", "Delegate a bounded coding or analysis task to Cursor Grok 4.
   cwd: external_exports.string().describe("Absolute working directory or worktree path"),
   prompt,
   mode: external_exports.enum(["agent", "ask", "plan"]).default("agent"),
+  permissions: external_exports.enum(["default", "full-access"]).default("default").describe("default keeps Cursor sandbox and approvals. full-access launches with --force --sandbox disabled; select only when the user has authorized unrestricted execution for this delegated work. This does not import Codex permissions; Cursor deny rules and team policies still apply."),
   request_id: external_exports.string().min(1).max(200).optional().describe("Stable unique key for this delegation; reuse on uncertain retries to avoid duplicate execution")
 }, (a) => manager.start(a));
 tool("read_task", "Read compact status, key events, pending requests, latest reply and native Cursor session references. idle/end_turn is not an acceptance verdict. Set include_output to page the cached reply; read_history retrieves earlier messages and detailed tool results from Cursor.", {
@@ -39013,7 +39029,7 @@ tool("read_task", "Read compact status, key events, pending requests, latest rep
   output_offset: external_exports.number().int().nonnegative().default(0),
   max_output_chars: external_exports.number().int().min(1).max(5e4).default(8e3)
 }, ({ task_id, ...a }) => manager.read(task_id, a), true);
-tool("wait", "Wait for new events, a question, or completion from any listed task. Use each returned next_cursor in after_cursors to read incrementally. Timeout or cancellation of this wait leaves the tasks running.", {
+tool("wait", "Wait for a turn to end, fail, stop, or need a response. Ordinary progress does not wake this wait. Returns status, pending requests and an unread completed reply, without event pages. Pass each next_cursor in after_cursors to avoid repeating completed results. Use read_task only when you need progress or more output. Timeout or cancellation of this wait leaves the tasks running.", {
   task_ids: external_exports.array(id).min(1).max(16),
   after_cursors: external_exports.record(external_exports.string(), external_exports.number().int().nonnegative()).default({}),
   timeout_ms: external_exports.number().int().min(0).max(6e4).default(3e4)

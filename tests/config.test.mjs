@@ -4,7 +4,13 @@ import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defaultStateRoot } from '../src/store.mjs';
-import { cursorBinary } from '../src/acp.mjs';
+import { cursorBinary, cursorArgs } from '../src/acp.mjs';
+
+test('full access is explicit and uses the expected Cursor startup flags', () => {
+  assert.deepEqual(cursorArgs(), ['--trust', '--sandbox', 'enabled', 'acp']);
+  assert.deepEqual(cursorArgs('full-access'), ['--trust', '--force', '--sandbox', 'disabled', 'acp']);
+  assert.throws(() => cursorArgs('inherit'), /permissions/);
+});
 
 test('renamed state keeps preview sessions discoverable and respects explicit configuration', () => {
   const home = mkdtempSync(join(tmpdir(), 'cursourcing-config-'));

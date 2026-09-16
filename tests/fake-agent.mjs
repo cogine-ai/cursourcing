@@ -43,6 +43,21 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     active = m.id;
     const prompt = p.prompt.map((part) => part.text ?? '').join('');
     if (prompt === 'MOCK:hold') return;
+    if (prompt === 'MOCK:progress' || prompt === 'MOCK:progress-hold') {
+      for (let i = 0; i < 25; i++) {
+        send({ method: 'session/update', params: { sessionId: session.id, update: {
+          sessionUpdate: 'tool_call_update', toolCallId: `progress-${i}`, title: `Read fixture ${i}`, status: 'completed',
+        } } });
+      }
+      text('Still working');
+      if (prompt === 'MOCK:progress') timer = setTimeout(() => {
+        send({ method: 'session/update', params: { sessionId: session.id, update: {
+          sessionUpdate: 'tool_call_update', toolCallId: 'last-tool', title: 'Finish fixture', status: 'completed',
+        } } });
+        finish('FINAL_REPORT');
+      }, 50);
+      return;
+    }
     if (prompt === 'MOCK:exit') return process.exit(7);
     if (prompt === 'MOCK:refuse') return finish('Cannot comply', 'refusal');
     if (prompt === 'MOCK:compact') {

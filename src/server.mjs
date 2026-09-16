@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { TaskManager } from './tasks.mjs';
 
 const manager = new TaskManager();
-const server = new McpServer({ name: 'cursourcing', version: '0.1.2' });
+const server = new McpServer({ name: 'cursourcing', version: '0.1.3' });
 const id = z.string().min(8).max(80), prompt = z.string().min(1).max(300000);
 const result = (value) => ({ content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value });
 function tool(name, description, inputSchema, fn, readOnly = false) {
@@ -18,6 +18,7 @@ function tool(name, description, inputSchema, fn, readOnly = false) {
 tool('start_task', 'Delegate a bounded coding or analysis task to Cursor Grok 4.6 xhigh fast. Returns a task ID immediately, including while initializing. Supply the current Codex workspace explicitly. Task text is passed through unchanged. Use wait/read_task to collect results; independent tasks can run concurrently.', {
   cwd: z.string().describe('Absolute working directory or worktree path'), prompt,
   mode: z.enum(['agent', 'ask', 'plan']).default('agent'),
+  permissions: z.enum(['default', 'full-access']).default('default').describe('default keeps Cursor sandbox and approvals. full-access launches with --force --sandbox disabled; select only when the user has authorized unrestricted execution for this delegated work. This does not import Codex permissions; Cursor deny rules and team policies still apply.'),
   request_id: z.string().min(1).max(200).optional().describe('Stable unique key for this delegation; reuse on uncertain retries to avoid duplicate execution'),
 }, (a) => manager.start(a));
 tool('read_task', 'Read compact status, key events, pending requests, latest reply and native Cursor session references. idle/end_turn is not an acceptance verdict. Set include_output to page the cached reply; read_history retrieves earlier messages and detailed tool results from Cursor.', {
@@ -26,7 +27,7 @@ tool('read_task', 'Read compact status, key events, pending requests, latest rep
   include_output: z.boolean().default(false),
   output_offset: z.number().int().nonnegative().default(0), max_output_chars: z.number().int().min(1).max(50000).default(8000),
 }, ({ task_id, ...a }) => manager.read(task_id, a), true);
-tool('wait', 'Wait for new events, a question, or completion from any listed task. Use each returned next_cursor in after_cursors to read incrementally. Timeout or cancellation of this wait leaves the tasks running.', {
+tool('wait', 'Wait for a turn to end, fail, stop, or need a response. Ordinary progress does not wake this wait. Returns status, pending requests and an unread completed reply, without event pages. Pass each next_cursor in after_cursors to avoid repeating completed results. Use read_task only when you need progress or more output. Timeout or cancellation of this wait leaves the tasks running.', {
   task_ids: z.array(id).min(1).max(16), after_cursors: z.record(z.string(), z.number().int().nonnegative()).default({}),
   timeout_ms: z.number().int().min(0).max(60000).default(30000),
 }, ({ task_ids, ...a }, extra) => manager.wait(task_ids, { ...a, signal: extra.signal }), true);
