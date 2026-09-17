@@ -38081,12 +38081,22 @@ function cursorArgs(permissions = "default") {
   if (permissions === "default") return ["--trust", "--sandbox", "enabled", "acp"];
   throw new Error("permissions must be default or full-access");
 }
+function ownedProcessAlive(reference) {
+  if (!reference || !Number.isSafeInteger(reference.pid) || reference.pid <= 1) return false;
+  try {
+    process.kill(reference.process_group ? -reference.pid : reference.pid, 0);
+    return true;
+  } catch (error62) {
+    return error62.code !== "ESRCH";
+  }
+}
 var AcpClient = class {
   constructor({ cwd, permissions = "default", command = cursorBinary(), args = cursorArgs(permissions), onUpdate, onRequest, onExit }) {
     this.pending = /* @__PURE__ */ new Map();
     this.sequence = 0;
     this.closed = false;
-    this.child = spawn(command, args, { cwd, stdio: ["pipe", "pipe", "pipe"], shell: false });
+    this.processGroup = process.platform !== "win32";
+    this.child = spawn(command, args, { cwd, stdio: ["pipe", "pipe", "pipe"], shell: false, detached: this.processGroup });
     this.onUpdate = onUpdate;
     this.onRequest = onRequest;
     this.onExit = onExit;
@@ -38122,7 +38132,7 @@ var AcpClient = class {
     });
     this.child.stdin.on("error", (error62) => this.fail(error62));
     this.child.on("error", (error62) => this.fail(error62));
-    this.child.on("close", (code, signal) => {
+    this.child.on("exit", (code, signal) => {
       this.exited = true;
       this.fail(new Error(`Cursor process exited (${code ?? signal})`));
       if (!this.closed) this.onExit?.(code, signal);
@@ -38173,7 +38183,7 @@ var AcpClient = class {
   async initialize() {
     const info = await this.request("initialize", {
       protocolVersion: 1,
-      clientInfo: { name: "cursourcing", version: "0.2.1" },
+      clientInfo: { name: "cursourcing", version: "0.2.3" },
       clientCapabilities: {
         fs: { readTextFile: false, writeTextFile: false },
         terminal: false,
@@ -38200,22 +38210,53 @@ var AcpClient = class {
     }
     return effective;
   }
-  async close() {
-    if (this.closed) return;
+  processReference() {
+    return this.child.pid ? { pid: this.child.pid, process_group: this.processGroup } : null;
+  }
+  close({ force = false } = {}) {
+    if (force) this.forceClosing = true;
+    if (this.closePromise) return this.closePromise;
     this.closed = true;
     this.fail(new Error("Cursor connection closed"));
-    if (this.exited) return;
-    await new Promise((resolve3) => {
-      const terminate = setTimeout(() => this.child.kill("SIGTERM"), 1500);
-      const kill = setTimeout(() => this.child.kill("SIGKILL"), 4e3);
-      this.child.once("close", () => {
-        clearTimeout(terminate);
-        clearTimeout(kill);
-        resolve3();
-      });
+    this.closePromise = new Promise((resolve3) => {
+      const reference = this.processReference(), started = Date.now();
+      let terminated = false, killed = false, timer;
+      const signal = (name) => {
+        if (!reference) return;
+        try {
+          process.kill(reference.process_group ? -reference.pid : reference.pid, name);
+        } catch {
+        }
+      };
+      const check2 = () => {
+        const elapsed = Date.now() - started, stopped = !ownedProcessAlive(reference);
+        const deadline = this.forceClosing ? 1500 : 6e3;
+        if (stopped || elapsed >= deadline) {
+          clearTimeout(timer);
+          this.lines.close();
+          this.child.stdin.destroy();
+          this.child.stdout.destroy();
+          this.child.stderr.destroy();
+          resolve3({ stopped, ...stopped ? {} : {
+            process: reference,
+            error: `Cursor cleanup exceeded ${deadline} ms; process termination is not confirmed.`
+          } });
+          return;
+        }
+        if (elapsed >= (this.forceClosing ? 0 : 1500) && !terminated) {
+          terminated = true;
+          signal("SIGTERM");
+        }
+        if (elapsed >= (this.forceClosing ? 250 : 4e3) && !killed) {
+          killed = true;
+          signal("SIGKILL");
+        }
+        timer = setTimeout(check2, 25);
+      };
       this.child.stdin.end();
+      check2();
     });
-    this.lines.close();
+    return this.closePromise;
   }
 };
 
@@ -38251,7 +38292,10 @@ var EVENT_FIELDS = [
   "kind",
   "locations",
   "cwd",
-  "prompt_fingerprint"
+  "prompt_fingerprint",
+  "failure_phase",
+  "cleanup_status",
+  "cleanup_error"
 ];
 function alive(pid) {
   if (!Number.isInteger(pid) || pid < 1) return false;
@@ -38373,7 +38417,7 @@ var Store = class {
     const release = await import_proper_lockfile.default.lock(this.dir(id2), {
       stale: 1e4,
       update: 2e3,
-      retries: { retries: 5, minTimeout: 1e3, maxTimeout: 2500 }
+      retries: { retries: 6, minTimeout: 1e3, maxTimeout: 2500 }
     });
     this.releases.set(id2, release);
     const task = this.load(id2);
@@ -38600,17 +38644,23 @@ async function replayHistory({
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", abort);
-    await client.close();
+    const cleanup = await client.close({ force: signal?.aborted }).catch((error62) => ({
+      stopped: false,
+      error: error62.message,
+      process: client.processReference?.() ?? null
+    }));
+    if (cleanup?.stopped === false) throw Object.assign(new Error(cleanup.error), { cleanup });
   }
 }
 
 // src/views.mjs
 function compactTask(task, { include_config = false } = {}) {
   const view = Object.fromEntries(["task_id", "run_id", "state", "event_cursor"].map((key) => [key, task[key]]));
-  for (const key of ["stop_reason", "error", "error_code", "deduplicated"]) {
+  for (const key of ["stop_reason", "error", "error_code", "deduplicated", "failure_phase", "cleanup_status", "cleanup_error"]) {
     if (task[key] != null) view[key] = task[key];
   }
   if (task.pending_requests?.length) view.pending_requests = task.pending_requests;
+  if (task.recovery) view.recovery = task.recovery;
   if (include_config) {
     view.permissions = task.permissions ?? "default";
     if (task.effective_config) view.effective_config = task.effective_config;
@@ -38636,7 +38686,7 @@ function transportFailure({ text, total_chars = text.length, truncated = false }
 }
 
 // src/tasks.mjs
-var ACTIVE = /* @__PURE__ */ new Set(["initializing", "resuming", "running", "awaiting_input", "cancelling"]);
+var ACTIVE = /* @__PURE__ */ new Set(["initializing", "resuming", "running", "awaiting_input", "cancelling", "cleaning"]);
 var DEFAULT_MODEL = { model: "grok-4.6", effort: "xhigh", fast: "true" };
 var errorText = (e) => e instanceof Error ? e.message : String(e);
 var digest = (text) => createHash("sha256").update(text).digest("hex");
@@ -38681,8 +38731,31 @@ var TaskManager = class {
       ...task,
       owner_alive: ownerAlive,
       owned_here: owner?.instance === this.instance,
+      ...["failed", "interrupted", "cancelled", "cleaning"].includes(task.state) ? { recovery: this.recovery(task, owner) } : {},
       ...include_paths ? this.paths(record2) : {}
     };
+  }
+  orphanBlock(task, owner = this.store.owner(task.task_id)) {
+    if (owner && alive(owner.pid)) return null;
+    const references = [task.execution_process, task.cleanup_process].filter(Boolean);
+    if (references.some(ownedProcessAlive)) return "previous_execution_running";
+    if (task.execution_pending) return "previous_execution_unknown";
+    if (Object.hasOwn(task, "execution_process")) return null;
+    const pid = this.store.readJournal(task).findLast((event) => event.type === "initializing" && event.pid)?.pid;
+    if (pid) return ownedProcessAlive({ pid, process_group: process.platform !== "win32" }) || alive(pid) ? "previous_execution_running" : null;
+    return ACTIVE.has(task.state) || task.state === "interrupted" ? "previous_execution_unknown" : null;
+  }
+  recovery(task, owner) {
+    const session_available = !!task.session_id;
+    let reason;
+    if (["pending", "blocked"].includes(task.cleanup_status) && (this.contexts.get(task.task_id)?.busy || !task.cleanup_process || ownedProcessAlive(task.cleanup_process))) {
+      reason = "cleanup_incomplete";
+    } else reason = this.orphanBlock(task, owner);
+    if (!reason && !session_available) reason = "no_session";
+    if (!reason && owner && owner.instance !== this.instance && alive(owner.pid)) reason = "owned_by_other_runtime";
+    const client = this.contexts.get(task.task_id)?.client;
+    if (!reason && client && !client.closed && !client.exited) reason = "session_connected";
+    return { session_available, can_resume: !reason, ...reason ? { reason } : {} };
   }
   async context(task) {
     if (this.closed) throw new Error("Plugin runtime is shutting down");
@@ -38693,6 +38766,13 @@ var TaskManager = class {
     }
     if (this.contexts.has(task.task_id)) return this.contexts.get(task.task_id);
     Object.assign(task, this.store.load(task.task_id));
+    try {
+      this.assertCleanupSafe(task.task_id);
+      if (this.orphanBlock(task, null)) throw new Error("Previous Cursor execution is not confirmed stopped; recovery is blocked.");
+    } catch (error62) {
+      await this.store.release(task.task_id, this.instance);
+      throw error62;
+    }
     const ctx = { task, client: null, loading: true, busy: false, pending: /* @__PURE__ */ new Map(), cancelled: false };
     this.contexts.set(task.task_id, ctx);
     return ctx;
@@ -38700,15 +38780,66 @@ var TaskManager = class {
   launch(ctx, action) {
     ctx.busy = true;
     ctx.work = Promise.resolve().then(action).catch(async (error62) => {
-      if (!this.closed && ctx.task.state !== "cancelled" && ctx.task.state !== "interrupted") {
-        this.state(ctx, ctx.cancelled ? "interrupted" : "failed", { error: errorText(error62), pending_requests: [] });
-      }
       ctx.pending.clear();
-      await ctx.client?.close();
-      ctx.client = null;
+      this.state(ctx, "cleaning", {
+        error: errorText(error62),
+        pending_requests: [],
+        failure_phase: ctx.loading ? "initialization" : "execution",
+        cleanup_status: "pending",
+        cleanup_process: ctx.client?.processReference?.() ?? null
+      });
+      await this.cleanup(ctx);
+      ctx.busy = false;
+      this.state(ctx, this.closed || ctx.cancelled ? "interrupted" : "failed");
     }).finally(() => {
       ctx.busy = false;
     });
+  }
+  cleanup(ctx, { force = false } = {}) {
+    if (!ctx.client) {
+      if (ctx.task.cleanup_status === "pending") ctx.task.cleanup_status = "complete";
+      return Promise.resolve();
+    }
+    if (ctx.cleanupPromise) {
+      if (force) ctx.client.close({ force: true });
+      return ctx.cleanupPromise;
+    }
+    ctx.cleanupPromise = Promise.resolve().then(() => ctx.client.close({ force })).then((result2) => {
+      if (result2?.stopped === false) {
+        Object.assign(ctx.task, {
+          cleanup_status: "blocked",
+          cleanup_error: result2.error,
+          cleanup_process: result2.process ?? ctx.task.cleanup_process
+        });
+      } else {
+        ctx.client = null;
+        Object.assign(ctx.task, { execution_process: null, execution_pending: false });
+        if (!(ctx.task.failure_phase === "history" && ctx.task.cleanup_status === "blocked")) {
+          Object.assign(ctx.task, { cleanup_status: "complete", cleanup_error: null, cleanup_process: null });
+        }
+      }
+    }, (error62) => {
+      Object.assign(ctx.task, { cleanup_status: "blocked", cleanup_error: errorText(error62) });
+    }).finally(() => this.store.save(ctx.task));
+    return ctx.cleanupPromise;
+  }
+  assertCleanupSafe(id2) {
+    const task = this.store.load(id2);
+    if (["pending", "blocked"].includes(task.cleanup_status)) {
+      const owner = this.store.owner(id2);
+      if (owner && owner.instance !== this.instance && alive(owner.pid)) {
+        throw new Error("Cursor cleanup is owned by another live plugin runtime. Wait for it to finish.");
+      }
+      if (!this.contexts.get(id2)?.busy && task.cleanup_process && !ownedProcessAlive(task.cleanup_process)) {
+        Object.assign(task, { cleanup_status: "complete", cleanup_error: null, cleanup_process: null });
+        this.store.save(task);
+        if (this.contexts.has(id2)) Object.assign(this.contexts.get(id2).task, task);
+      } else {
+        throw new Error("Cursor cleanup is not complete. Do not retry or start a replacement in this workspace until the previous process has stopped.");
+      }
+    }
+    const blocked = this.orphanBlock(task);
+    if (blocked) throw new Error(blocked === "previous_execution_running" ? "The previous Cursor process may still be running. Resume, history and replacement work are blocked until it has stopped." : "The previous Cursor execution cannot be confirmed stopped. Inspect the previous runtime before recovery or replacement work.");
   }
   async start({ cwd, prompt: prompt2, request_id, mode = "agent", permissions = "default" }) {
     cwd = workspace(cwd);
@@ -38721,6 +38852,11 @@ var TaskManager = class {
       ...permissions === "default" ? {} : { permissions }
     })).digest("hex");
     const id2 = request_id ? `task-${createHash("sha256").update(`${cwd}\0${request_id}`).digest("hex").slice(0, 32)}` : randomUUID2();
+    for (const previous of this.store.list()) {
+      if (previous.cwd === cwd && previous.task_id !== id2) {
+        this.assertCleanupSafe(previous.task_id);
+      }
+    }
     const task = {
       task_id: id2,
       request_id,
@@ -38734,6 +38870,8 @@ var TaskManager = class {
       event_cursor: 0,
       run_id: 1,
       session_id: null,
+      execution_process: null,
+      execution_pending: false,
       created_at: (/* @__PURE__ */ new Date()).toISOString(),
       pending_requests: []
     };
@@ -38753,18 +38891,27 @@ var TaskManager = class {
   async setup(ctx, resume) {
     if (ctx.cancelled || this.closed) throw new Error("Task cancelled before initialization");
     ctx.loading = true;
+    ctx.cleanupPromise = null;
+    delete ctx.task.failure_phase;
+    delete ctx.task.cleanup_status;
+    delete ctx.task.cleanup_error;
+    delete ctx.task.cleanup_process;
+    ctx.task.execution_pending = true;
+    this.store.save(ctx.task);
     ctx.client = this.clientFactory({
       cwd: ctx.task.cwd,
       permissions: ctx.task.permissions ?? "default",
       onUpdate: (params2) => this.update(ctx, params2),
       onRequest: (request) => this.openRequest(ctx, request),
       onExit: () => {
-        if (!this.closed && !ctx.cancelled) this.state(ctx, "interrupted", {
-          error: "Cursor exited unexpectedly. Use resume to reload its conversation.",
-          pending_requests: []
+        if (!this.closed && !ctx.cancelled && !ctx.busy) this.launch(ctx, () => {
+          throw new Error("Cursor exited unexpectedly. Resume reloads its conversation without replaying the prompt.");
         });
       }
     });
+    ctx.task.execution_process = ctx.client.processReference?.() ?? null;
+    ctx.task.execution_pending = !ctx.task.execution_process;
+    this.store.save(ctx.task);
     this.event(ctx, "initializing", { phase: "authenticate", pid: ctx.client.child.pid });
     await ctx.client.initialize();
     if (ctx.cancelled) throw new Error("Cancelled during initialization");
@@ -38870,6 +39017,7 @@ var TaskManager = class {
   }
   send(id2, prompt2, requestId) {
     if (this.histories.has(id2)) throw new Error("History is being read. Wait for that read before sending another turn.");
+    this.assertCleanupSafe(id2);
     const ctx = this.contexts.get(id2);
     if (!ctx?.client) throw new Error("Resume this task before sending another message");
     if (requestId && ctx.task.last_message_request_id === requestId) {
@@ -38892,6 +39040,8 @@ var TaskManager = class {
   async resume(id2) {
     if (this.histories.has(id2)) throw new Error("History is being read. Wait before resuming this task.");
     const existing = this.contexts.get(id2);
+    if (existing?.busy) return this.snapshot(id2);
+    this.assertCleanupSafe(id2);
     if (existing?.busy || existing?.client && !existing.client.closed && !existing.client.exited) return this.snapshot(id2);
     const task = this.store.load(id2);
     if (!task.session_id) throw new Error("No Cursor session was created. Start a new task to retry initialization.");
@@ -38917,6 +39067,10 @@ var TaskManager = class {
     const ctx = this.contexts.get(id2);
     if (!ctx) throw new Error("Task is not owned by this runtime; inspect its state or resume it first");
     if (!ctx.busy) return this.snapshot(id2);
+    if (ctx.task.state === "cleaning") {
+      await ctx.work;
+      return this.snapshot(id2);
+    }
     ctx.cancelled = true;
     this.state(ctx, "cancelling");
     for (const r of ctx.pending.values()) {
@@ -38938,15 +39092,16 @@ var TaskManager = class {
       clearTimeout(timeout);
     }
     if (ctx.busy) {
-      await ctx.client?.close();
+      await this.cleanup(ctx);
       await ctx.work;
     }
-    if (ctx.task.state !== "cancelled") this.state(ctx, "interrupted", { error: "Execution stopped; Cursor did not confirm cancellation. File changes are retained." });
+    if (ctx.task.state !== "cancelled" && !ctx.task.error) this.state(ctx, "interrupted", { error: "Execution stopped; Cursor did not confirm cancellation. File changes are retained." });
     return this.snapshot(id2);
   }
   async history(id2, { offset = 0, limit = 16e3, signal, timeout_ms } = {}) {
     if (this.closed) throw new Error("Plugin runtime is shutting down");
     if (this.contexts.get(id2)?.busy || this.histories.has(id2)) throw new Error("Task is busy. Read history after execution is idle.");
+    this.assertCleanupSafe(id2);
     const task = this.store.load(id2);
     if (!task.session_id) throw new Error("No Cursor session is available for history");
     const reading = { controller: new AbortController(), work: null };
@@ -38971,6 +39126,18 @@ var TaskManager = class {
     })();
     try {
       return await reading.work;
+    } catch (error62) {
+      if (error62.cleanup) {
+        const ctx = this.contexts.get(id2);
+        this.state(ctx, "failed", {
+          error: errorText(error62),
+          failure_phase: "history",
+          cleanup_status: "blocked",
+          cleanup_error: error62.cleanup.error,
+          cleanup_process: error62.cleanup.process
+        });
+      }
+      throw error62;
     } finally {
       this.histories.delete(id2);
       signal?.removeEventListener("abort", abort);
@@ -39004,7 +39171,7 @@ var TaskManager = class {
       output: output2
     };
   }
-  async wait(ids, { after_cursors = {}, timeout_ms = 5e4, signal, detail: detail2 = "full" } = {}) {
+  async wait(ids, { after_cursors = {}, timeout_ms = 12e4, signal, detail: detail2 = "full" } = {}) {
     const ready = (task) => task.state === "awaiting_input" || !ACTIVE.has(task.state) && (task.event_cursor > (after_cursors[task.task_id] ?? 0) || // A dead owner cannot append an interruption event. Keep that failure visible.
     task.state === "interrupted" && !task.owner_alive);
     let timer, finish;
@@ -39059,27 +39226,32 @@ var TaskManager = class {
   list(cwd) {
     return this.store.list().filter((t) => !cwd || t.cwd === workspace(cwd)).map((t) => this.snapshot(t.task_id));
   }
-  async close() {
-    if (this.closed) return;
+  close() {
+    if (this.closePromise) return this.closePromise;
     this.closed = true;
-    const histories = [...this.histories.values()];
-    histories.forEach((reading) => reading.controller.abort());
-    await Promise.allSettled(histories.map((reading) => reading.work));
-    await Promise.all([...this.contexts.values()].map(async (ctx) => {
-      await ctx.client?.close();
-      await ctx.work;
-      ctx.pending.clear();
-      ctx.task.pending_requests = [];
-      if (ACTIVE.has(ctx.task.state)) this.state(ctx, "interrupted", { error: "Plugin runtime stopped. Resume to reload this conversation." });
-      this.store.save(ctx.task);
-      await this.store.release(ctx.task.task_id, this.instance);
-    }));
+    this.closePromise = (async () => {
+      const histories = [...this.histories.values()];
+      histories.forEach((reading) => reading.controller.abort());
+      await Promise.all([
+        Promise.allSettled(histories.map((reading) => reading.work)),
+        ...[...this.contexts.values()].map(async (ctx) => {
+          await this.cleanup(ctx, { force: true });
+          await ctx.work;
+          ctx.pending.clear();
+          ctx.task.pending_requests = [];
+          if (ACTIVE.has(ctx.task.state)) this.state(ctx, "interrupted", { error: "Plugin runtime stopped. Resume to reload this conversation." });
+          this.store.save(ctx.task);
+        })
+      ]);
+      for (const ctx of this.contexts.values()) await this.store.release(ctx.task.task_id, this.instance);
+    })();
+    return this.closePromise;
   }
 };
 
 // src/server.mjs
 var manager = new TaskManager();
-var server = new McpServer({ name: "cursourcing", version: "0.2.2" });
+var server = new McpServer({ name: "cursourcing", version: "0.2.3" });
 var id = external_exports.string().min(8).max(80);
 var prompt = external_exports.string().min(1).max(3e5);
 var detail = external_exports.enum(["compact", "full"]).default("compact").describe("Full metadata and paths are opt-in.");
@@ -39112,7 +39284,7 @@ tool("start_task", "Delegate the first complete result to Cursor Grok 4.6 xhigh 
   const task = await manager.start(a);
   return detail2 === "full" ? task : compactTask(task, { include_config: true });
 });
-tool("read_task", "Resolve a specific missing detail through task metadata, progress, events, pending requests or native session references. Prefer wait for delivery; ordinary timeouts do not require a progress read. idle is not acceptance. include_output pages the cached reply; read_history retrieves earlier messages and tool results.", {
+tool("read_task", "Read missing information that affects the next action or answers a user progress question: task metadata, events, pending requests or native session references. Prefer wait for delivery; ordinary timeouts do not require a progress read. idle is not acceptance. include_output pages the cached reply; read_history retrieves earlier messages and tool results.", {
   task_id: id,
   after_cursor: external_exports.number().int().nonnegative().default(0),
   max_events: external_exports.number().int().min(1).max(100).default(10),
@@ -39120,10 +39292,10 @@ tool("read_task", "Resolve a specific missing detail through task metadata, prog
   output_offset: external_exports.number().int().nonnegative().default(0),
   max_output_chars: external_exports.number().int().min(1).max(5e4).default(8e3)
 }, ({ task_id, ...a }) => manager.read(task_id, a), true);
-tool("wait", "Wait for completion, failure, stop or required input; progress stays local. Returns compact status and an unread reply. Pass next_cursor in after_cursors. For timed host wrappers, use a longer outer budget (e.g. 60s outside / 50s inside when supported). If the wrapper yields, continue that pending call with a long wait rather than short polls or a second plugin wait. Timeout/cancellation leaves execution running.", {
+tool("wait", "Wait up to 120s for completion, failure, stop or required input; these return immediately and progress stays local. Returns compact status and an unread reply. Pass next_cursor in after_cursors. The MCP deadline must exceed the inner wait (the plugin config uses 150s). For timed host wrappers, allow headroom where supported; if the wrapper yields, continue that pending call rather than starting another plugin wait. Use a shorter inner timeout when the host has a shorter hard deadline. Timeout/cancellation leaves execution running.", {
   task_ids: external_exports.array(id).min(1).max(16),
   after_cursors: external_exports.record(external_exports.string(), external_exports.number().int().nonnegative()).default({}),
-  timeout_ms: external_exports.number().int().min(0).max(6e4).default(5e4),
+  timeout_ms: external_exports.number().int().min(0).max(12e4).default(12e4),
   detail
 }, ({ task_ids, ...a }, extra) => manager.wait(task_ids, { ...a, signal: extra.signal }), true);
 tool("send_message", "Continue an idle Cursor conversation when further delegation is warranted: new investigation, substantial rework, or explicit user direction. Codex handles bounded acceptance corrections directly by default. A busy session must finish or be cancelled first; independent work can use another task. Returns before execution completes.", {
@@ -39137,7 +39309,7 @@ tool("respond", 'Answer a live Cursor client request using its request_id and th
   response: external_exports.record(external_exports.string(), external_exports.unknown())
 }, (a) => manager.respond(a.task_id, a.request_id, a.response));
 tool("cancel", "Stop a running task, retaining its output and file changes. Cancels only the selected Cursor task. It does not roll back files.", { task_id: id }, (a) => manager.cancel(a.task_id));
-tool("resume", "Reload a saved Cursor conversation in its original cwd and requested model configuration. Returns while initialization is running. It does not replay unfinished instructions; after it becomes idle, send_message can continue the work.", { task_id: id }, (a) => manager.resume(a.task_id));
+tool("resume", "Reload a saved Cursor conversation in its original cwd and requested model configuration. Failed/interrupted status includes recovery eligibility; no session, unconfirmed previous execution or incomplete cleanup prevents recovery. A connected session needs no reload. Returns while initialization is running and does not replay unfinished instructions; after it becomes idle, send_message can continue warranted work.", { task_id: id }, (a) => manager.resume(a.task_id));
 tool("list_tasks", "Find saved Cursor tasks and their statuses, optionally within a workspace. Records describe bridge activity only, not native Codex subagents.", { cwd: external_exports.string().optional() }, (a) => ({ tasks: manager.list(a.cwd) }), true);
 tool("read_history", "Inspect earlier messages or tool results when a specific evidence gap requires them; not a routine delivery check. Prefer the reply from wait, cached read_task output and actual artifacts first. Replays an idle session without prompting the model or copying its transcript to disk. Each page reloads history; offsets require an unchanged conversation. A shared replay deadline closes the read client before releasing the session for follow-ups; errors leave the saved session and cached reply intact.", {
   task_id: id,
@@ -39146,14 +39318,14 @@ tool("read_history", "Inspect earlier messages or tool results when a specific e
   timeout_ms: external_exports.number().int().min(1).max(HISTORY_TIMEOUT_MS).default(HISTORY_TIMEOUT_MS).describe("Budget for startup, authentication and replay together; allow additional time for process cleanup. Lower it for hosts with shorter tool-call deadlines.")
 }, ({ task_id, ...a }, extra) => manager.history(task_id, { ...a, signal: extra.signal }), true);
 var transport = new StdioServerTransport();
-var stopping = false;
-async function shutdown() {
-  if (stopping) return;
-  stopping = true;
-  await manager.close();
-  await server.close();
+var shutdownPromise;
+function shutdown() {
+  return shutdownPromise ??= (async () => {
+    await manager.close();
+    await server.close();
+  })();
 }
-process.once("SIGTERM", () => shutdown().then(() => process.exit(0)));
-process.once("SIGINT", () => shutdown().then(() => process.exit(0)));
+process.on("SIGTERM", () => shutdown().then(() => process.exit(0)));
+process.on("SIGINT", () => shutdown().then(() => process.exit(0)));
 process.stdin.once("end", () => shutdown().then(() => process.exit(0)));
 await server.connect(transport);

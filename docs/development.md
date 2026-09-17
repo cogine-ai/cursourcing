@@ -4,10 +4,17 @@
 npm ci
 npm run build
 npm test
+npm run test:wait
 npm run test:live
 ```
 
 `test:live` uses the installed Cursor account and creates temporary workspaces. It checks parallel tasks, a file edit, cancellation, and cross-process session recovery through the real MCP interface. It cleans up its own processes/workspaces and prints a verification report. It does not test automatic Codex routing decisions or every Cursor extension.
+
+`test:wait` takes about two minutes and uses only a local fixture, with no model or
+account calls. It checks the bundled MCP server's default 120-second wait under
+the configured 150-second deadline, cancellation without stopping execution,
+and early delivery of input requests and completed results. Host wrapper yields
+and model response counts require separate host-level observation.
 
 Automated tests cover the MCP entrypoint, concurrent tasks, requests, cancellation, recovery, compact storage, native-history replay, and preview configuration compatibility. Live reports may contain local workspace paths and session identifiers; keep them locally rather than publishing them.
 
@@ -26,6 +33,12 @@ verify that the session stays guarded until the replay client has closed,
 unrelated tasks still run, cached delivery survives, and history can be retried
 without prompting the model. The bundled MCP test exercises a real local fixture
 process that stalls replay, then verifies same-session continuation.
+
+Recovery regressions kill an isolated fixture host while its CLI keeps working,
+then verify that recovery, history replay and replacement work are blocked until
+the old process stops. They also cover unknown startup windows, legacy journal
+evidence, changes during lease acquisition, and failure summaries before and
+after session creation. Shutdown tests cover stdin closure and repeated signals.
 
 For the 0.2.2 workflow, review the skill, tool descriptions, invocation prompts and
 both READMEs together: none should default to sending routine acceptance findings

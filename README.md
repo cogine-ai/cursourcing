@@ -24,6 +24,25 @@ After taking over, Codex keeps bounded corrections locally by default. New inves
 
 Your main Codex model stays the one you selected. Cursor currently runs **Grok 4.6 · xhigh · fast**.
 
+## Token savings benchmark
+
+In a local controlled evaluation on September 17, 2026, **Cursourcing 0.2.2 (B4) used 43.93% fewer Codex tokens across three tasks than Astra alone (A)**, saving 1,026,033 tokens.
+
+Both groups used **GPT-6 Astra · high** as the main model. A completed the work directly. B4 used a local snapshot of the committed 0.2.2 package, delegating the first implementation, self-checks and evidence to **Cursor Grok 4.6 · xhigh · fast**, then keeping acceptance and local corrections with Astra. Each B4 task ran once in a fresh, independent session, against the earlier A sample for the same task.
+
+| Task | A: Astra alone | B4: Astra + Cursourcing 0.2.2 | Codex token savings |
+| --- | ---: | ---: | ---: |
+| Redesign a 14-route React website | 1,562,806 | 723,832 | **53.68%** |
+| Fix Click boolean flag defaults | 385,253 | 309,222 | **19.74%** |
+| Extract Tornado DNS resolvers across files | 387,808 | 276,780 | **28.63%** |
+| **Total** | **2,335,867** | **1,309,834** | **43.93%** |
+
+**Measurement:** Codex input and output tokens across each implementation session, including delegation, waiting, review and local corrections. Cached reads are already included in input; reasoning is already included in output. Separate launcher sessions and shared evaluation setup, external acceptance and reporting overhead are accounted for separately and excluded from this table. Savings are `(A − B4) / A`; the total uses summed tokens.
+
+**Quality and controls:** Task briefs, original starters, main-model settings and frozen acceptance checks stayed the same; workflow instructions differed by role, with B4 explicitly keeping subsequent corrections in Astra. All three tasks passed frozen functional acceptance and received source or visual review. The frontend passed 28 checks across 14 routes at desktop and mobile sizes; Click and Tornado passed independent regression tests. Tornado still omitted the new module from its package type declarations, so functional success does not establish a complete type entry point.
+
+**Limits:** This is one sample per task, and the frontend contributes most of the total. Model variability, caching and service load can affect results; the measured reduction is not a guarantee. Fewer Codex tokens do not necessarily mean faster completion or lower combined cost: both backend tasks remained slower than Astra alone, Click's Codex API-equivalent cost was slightly higher, and Cursor usage was not fully returned. Raw evaluation records remain local and have not been published with the repository.
+
 ## Install
 
 **You'll need:** Codex with plugin support, Node.js 22+, and an installed, authenticated [Cursor CLI](https://cursor.com/docs/cli/overview). Run `agent login` if you haven't signed in. Cursor must have access to the configured Grok model.
@@ -94,12 +113,18 @@ Codex decides what to do directly and what to delegate as the task develops. Nat
 
 ## Update
 
-**0.2.2** makes the ownership boundary explicit: Cursor delivers the first complete
-result and self-check evidence; Codex then owns acceptance and bounded corrections.
-The skill defers review of changing artifacts, sequences writes/builds before their
-checks, and reuses valid evidence. Tool guidance, invocation prompts and documentation
-follow the same workflow. Bounded history replay, quiet waits and recovery are retained.
-This update does not establish token savings; those require fresh behavioral evaluation.
+**0.2.3** reduces routine coordination and makes interrupted-session recovery safer:
+
+- Waits now default to 120 seconds, with a 150-second MCP deadline; delivery and blocking requests return early.
+- Failed execution finishes process cleanup before returning an actionable failure. Runtime shutdown also drains its owned CLI processes.
+- Recovery and replacement work are blocked while a previous runtime's execution is alive or unconfirmed. Failure summaries indicate whether a session exists and can be resumed.
+- The skill reads progress only when it affects a decision and uses longer waits for local validation commands.
+
+The two-phase workflow introduced in 0.2.2 remains: Cursor delivers the first
+complete result and self-check evidence; Codex owns acceptance and bounded
+corrections. Grok 4.6 xhigh fast remains the execution model. The historical
+[token savings benchmark](#token-savings-benchmark) measures 0.2.2 (B4); the
+additional savings from 0.2.3 have not been measured.
 See [runtime details](docs/runtime.md) and the [0.2 migration notes](docs/runtime.md#compact-results-and-02-migration).
 
 ```bash
@@ -108,7 +133,7 @@ codex plugin add cursourcing@cogine-ai
 codex plugin list --json
 ```
 
-Confirm that Cursourcing reports version `0.2.2`, then start a new task to pick up
+Confirm that Cursourcing reports version `0.2.3`, then start a new task to pick up
 the refreshed skill and tools.
 
 ## Go deeper

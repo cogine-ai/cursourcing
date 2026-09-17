@@ -30,12 +30,12 @@ test('local completion and blocking input wake waits even when file notification
     const task = await manager.start({ cwd, prompt: 'fixture' });
     await started;
     const controller = new AbortController();
-    const aborted = manager.wait([task.task_id], { timeout_ms: 60000, signal: controller.signal });
+    const aborted = manager.wait([task.task_id], { timeout_ms: 120000, signal: controller.signal });
     const rejection = assert.rejects(aborted, /continue running/);
     controller.abort(); await rejection;
     assert.equal(manager.waiters.size, 0);
 
-    const awaitingInput = manager.wait([task.task_id], { timeout_ms: 60000, detail: 'compact' });
+    const awaitingInput = manager.wait([task.task_id], { timeout_ms: 120000, detail: 'compact' });
     clientArgs.onRequest({ id: 'permission', method: 'session/request_permission', params: {
       options: [{ optionId: 'allow-once', kind: 'allow_once' }], toolCall: { title: 'Fixture' } } });
     const pending = (await awaitingInput).tasks[0];
@@ -43,7 +43,7 @@ test('local completion and blocking input wake waits even when file notification
     manager.respond(task.task_id, pending.task.pending_requests[0].request_id,
       { outcome: { outcome: 'selected', optionId: 'allow-once' } });
 
-    const result = manager.wait([task.task_id], { timeout_ms: 60000, detail: 'compact',
+    const result = manager.wait([task.task_id], { timeout_ms: 120000, detail: 'compact',
       after_cursors: { [task.task_id]: pending.next_cursor } });
     clientArgs.onUpdate({ sessionId: 'local-session', update: {
       sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'LAST_OUTPUT' } } });

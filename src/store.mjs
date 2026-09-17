@@ -12,6 +12,7 @@ const EVENT_FIELDS = [
   'seq', 'at', 'run_id', 'type', 'state', 'error', 'error_code', 'stop_reason', 'phase', 'pid',
   'request_id', 'method', 'session_id', 'effective_config', 'requested_config',
   'tool_call_id', 'title', 'status', 'kind', 'locations', 'cwd', 'prompt_fingerprint',
+  'failure_phase', 'cleanup_status', 'cleanup_error',
 ];
 
 export function alive(pid) {
@@ -121,8 +122,10 @@ export class Store {
     if (owner && owner.instance !== instance && alive(owner.pid)) {
       throw new Error('This task is owned by another live plugin runtime. Read its status there before resuming.');
     }
+    // The lock library can round its first mtime up by a second. Allow retries
+    // beyond stale + that precision margin when recovering a dead owner.
     const release = await lockfile.lock(this.dir(id), { stale: 10000, update: 2000,
-      retries: { retries: 5, minTimeout: 1000, maxTimeout: 2500 } });
+      retries: { retries: 6, minTimeout: 1000, maxTimeout: 2500 } });
     this.releases.set(id, release);
     const task = this.load(id);
     const journal = this.journalPath(task);

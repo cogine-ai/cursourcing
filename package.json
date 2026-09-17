@@ -1,9 +1,12 @@
 {
   "name": "cursourcing",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "license": "Apache-2.0",
   "description": "Cursor CLI delivers the first complete result; Codex accepts and finishes it.",
-  "repository": { "type": "git", "url": "https://github.com/cogine-ai/cursourcing.git" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cogine-ai/cursourcing.git"
+  },
   "private": true,
   "type": "module",
   "engines": {
@@ -12,7 +15,8 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "node --test --test-concurrency=1 tests/*.test.mjs",
-    "test:live": "node scripts/live-smoke.mjs"
+    "test:live": "node scripts/live-smoke.mjs",
+    "test:wait": "npm run build && node scripts/wait-smoke.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",

@@ -80,7 +80,9 @@ export async function replayHistory({ cwd, session_id, offset = 0, limit = 16000
     clearTimeout(timer);
     signal?.removeEventListener('abort', abort);
     // Do not release the manager's history guard while the replay process can
-    // still access the session. AcpClient.close escalates termination after 4s.
-    await client.close();
+    // still access the session. An unconfirmed stop remains blocked in the store.
+    const cleanup = await client.close({ force: signal?.aborted }).catch((error) => ({ stopped: false,
+      error: error.message, process: client.processReference?.() ?? null }));
+    if (cleanup?.stopped === false) throw Object.assign(new Error(cleanup.error), { cleanup });
   }
 }

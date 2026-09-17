@@ -1,10 +1,11 @@
 // Model-facing status. Full records and native paths remain available through read_task.
 export function compactTask(task, { include_config = false } = {}) {
   const view = Object.fromEntries(['task_id', 'run_id', 'state', 'event_cursor'].map((key) => [key, task[key]]));
-  for (const key of ['stop_reason', 'error', 'error_code', 'deduplicated']) {
+  for (const key of ['stop_reason', 'error', 'error_code', 'deduplicated', 'failure_phase', 'cleanup_status', 'cleanup_error']) {
     if (task[key] != null) view[key] = task[key];
   }
   if (task.pending_requests?.length) view.pending_requests = task.pending_requests;
+  if (task.recovery) view.recovery = task.recovery;
   if (include_config) {
     view.permissions = task.permissions ?? 'default';
     if (task.effective_config) view.effective_config = task.effective_config;

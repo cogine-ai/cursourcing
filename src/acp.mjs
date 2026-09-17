@@ -18,10 +18,19 @@ export function cursorArgs(permissions = 'default') {
   throw new Error('permissions must be default or full-access');
 }
 
+// Only references created by this runtime are used for signalling. A process group
+// keeps a CLI wrapper's descendants owned even if the wrapper exits first.
+export function ownedProcessAlive(reference) {
+  if (!reference || !Number.isSafeInteger(reference.pid) || reference.pid <= 1) return false;
+  try { process.kill(reference.process_group ? -reference.pid : reference.pid, 0); return true; }
+  catch (error) { return error.code !== 'ESRCH'; }
+}
+
 export class AcpClient {
   constructor({ cwd, permissions = 'default', command = cursorBinary(), args = cursorArgs(permissions), onUpdate, onRequest, onExit }) {
     this.pending = new Map(); this.sequence = 0; this.closed = false;
-    this.child = spawn(command, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
+    this.processGroup = process.platform !== 'win32';
+    this.child = spawn(command, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: false, detached: this.processGroup });
     this.onUpdate = onUpdate; this.onRequest = onRequest; this.onExit = onExit;
     this.lines = createInterface({ input: this.child.stdout });
     this.lines.on('line', (line) => {
@@ -50,7 +59,7 @@ export class AcpClient {
     this.child.stderr.on('data', () => {});
     this.child.stdin.on('error', (error) => this.fail(error));
     this.child.on('error', (error) => this.fail(error));
-    this.child.on('close', (code, signal) => {
+    this.child.on('exit', (code, signal) => {
       this.exited = true;
       this.fail(new Error(`Cursor process exited (${code ?? signal})`));
       if (!this.closed) this.onExit?.(code, signal);
@@ -82,7 +91,7 @@ export class AcpClient {
   }
   async initialize() {
     const info = await this.request('initialize', {
-      protocolVersion: 1, clientInfo: { name: 'cursourcing', version: '0.2.1' },
+      protocolVersion: 1, clientInfo: { name: 'cursourcing', version: '0.2.3' },
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false,
         _meta: { parameterizedModelPicker: true } },
     });
@@ -106,17 +115,41 @@ export class AcpClient {
     }
     return effective;
   }
-  async close() {
-    if (this.closed) return;
+  processReference() {
+    return this.child.pid ? { pid: this.child.pid, process_group: this.processGroup } : null;
+  }
+  close({ force = false } = {}) {
+    // The MCP host may kill its server shortly after EOF. Runtime shutdown must
+    // not use the longer grace period intended for a normal task failure.
+    if (force) this.forceClosing = true;
+    if (this.closePromise) return this.closePromise;
     this.closed = true;
     this.fail(new Error('Cursor connection closed'));
-    if (this.exited) return;
-    await new Promise((resolve) => {
-      const terminate = setTimeout(() => this.child.kill('SIGTERM'), 1500);
-      const kill = setTimeout(() => this.child.kill('SIGKILL'), 4000);
-      this.child.once('close', () => { clearTimeout(terminate); clearTimeout(kill); resolve(); });
+    this.closePromise = new Promise((resolve) => {
+      const reference = this.processReference(), started = Date.now();
+      let terminated = false, killed = false, timer;
+      const signal = (name) => {
+        if (!reference) return;
+        try { process.kill(reference.process_group ? -reference.pid : reference.pid, name); }
+        catch { /* The deadline reports any process we could not stop. */ }
+      };
+      const check = () => {
+        const elapsed = Date.now() - started, stopped = !ownedProcessAlive(reference);
+        const deadline = this.forceClosing ? 1500 : 6000;
+        if (stopped || elapsed >= deadline) {
+          clearTimeout(timer); this.lines.close();
+          this.child.stdin.destroy(); this.child.stdout.destroy(); this.child.stderr.destroy();
+          resolve({ stopped, ...(stopped ? {} : { process: reference,
+            error: `Cursor cleanup exceeded ${deadline} ms; process termination is not confirmed.` }) });
+          return;
+        }
+        if (elapsed >= (this.forceClosing ? 0 : 1500) && !terminated) { terminated = true; signal('SIGTERM'); }
+        if (elapsed >= (this.forceClosing ? 250 : 4000) && !killed) { killed = true; signal('SIGKILL'); }
+        timer = setTimeout(check, 25);
+      };
       this.child.stdin.end();
+      check();
     });
-    this.lines.close();
+    return this.closePromise;
   }
 }

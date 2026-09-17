@@ -21,7 +21,8 @@ test('bundled MCP server exposes tools and recovers a session across server rest
     await client.connect(transport); clients.push(client); return client;
   };
   const call = async (client, name, args) => {
-    const result = await client.callTool({ name, arguments: args });
+    const result = await client.callTool({ name, arguments: args }, undefined,
+      { timeout: JSON.parse(readFileSync('.mcp.json', 'utf8')).mcpServers.cursourcing.tool_timeout_sec * 1000 });
     assert.ok(!result.isError, JSON.stringify(result));
     return result.structuredContent;
   };
@@ -70,7 +71,7 @@ test('bundled MCP server exposes tools and recovers a session across server rest
     await call(two, 'send_message', { task_id: task.task_id, prompt: 'MOCK:recall' });
     assert.equal((await idle(two, task.task_id)).output.text, 'MCP_TOKEN');
     const noisy = await call(two, 'start_task', { cwd, prompt: 'MOCK:progress', permissions: 'full-access' });
-    const quiet = await call(two, 'wait', { task_ids: [noisy.task_id], timeout_ms: 2000 });
+    const quiet = await call(two, 'wait', { task_ids: [noisy.task_id], timeout_ms: 120000 });
     assert.equal(quiet.timed_out, false);
     assert.equal(quiet.tasks[0].task.permissions, 'full-access');
     assert.equal(quiet.tasks[0].task.state, 'idle');
@@ -87,6 +88,7 @@ test('bundled MCP server exposes tools and recovers a session across server rest
     assert.equal(compact.timed_out, true);
     assert.equal(compact.tasks[0].task.state, 'running');
     assert.equal(compact.tasks[0].task.progress, undefined);
+    assert.equal(compact.tasks[0].task.recovery, undefined);
     assert.equal(compact.tasks[0].task.log_path, undefined);
     assert.equal(compact.tasks[0].output.path, undefined);
     assert.equal(full.tasks[0].task.cwd, realpathSync(cwd));
@@ -96,7 +98,7 @@ test('bundled MCP server exposes tools and recovers a session across server rest
     await call(two, 'cancel', { task_id: held.task_id });
 
     const blocked = await call(two, 'start_task', { cwd, prompt: 'MOCK:permission' });
-    const pending = await call(two, 'wait', { task_ids: [blocked.task_id], timeout_ms: 2000 });
+    const pending = await call(two, 'wait', { task_ids: [blocked.task_id] });
     const request = pending.tasks[0].task.pending_requests[0];
     assert.equal(request.params.options[0].optionId, 'allow-once');
     const pendingAgain = await call(two, 'wait', { task_ids: [blocked.task_id],
@@ -112,6 +114,8 @@ test('bundled MCP server exposes tools and recovers a session across server rest
     assert.equal(failure.tasks[0].task.state, 'failed');
     assert.equal(failure.tasks[0].task.error_code, 'cursor_transport_error');
     assert.match(failure.tasks[0].output.text, /transport closed/);
+    assert.deepEqual(failure.tasks[0].task.recovery,
+      { session_available: true, can_resume: false, reason: 'session_connected' });
   } finally {
     await Promise.all(clients.map((client) => client.close())); rmSync(root, { recursive: true, force: true });
   }
