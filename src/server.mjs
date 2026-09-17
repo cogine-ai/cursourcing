@@ -6,7 +6,7 @@ import { compactTask } from './views.mjs';
 import { HISTORY_TIMEOUT_MS } from './history.mjs';
 
 const manager = new TaskManager();
-const server = new McpServer({ name: 'cursourcing', version: '0.2.1' });
+const server = new McpServer({ name: 'cursourcing', version: '0.2.2' });
 const id = z.string().min(8).max(80), prompt = z.string().min(1).max(300000);
 const detail = z.enum(['compact', 'full']).default('compact').describe('Full metadata and paths are opt-in.');
 const result = (value) => ({ content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value });
@@ -18,7 +18,7 @@ function tool(name, description, inputSchema, fn, readOnly = false) {
     catch (error) { return { isError: true, content: [{ type: 'text', text: error.message }] }; }
   });
 }
-tool('start_task', 'Delegate a complete work unit to Cursor Grok 4.6 xhigh fast, including investigation and self-checks. Supply the current workspace, objective, constraints and acceptance evidence. Returns compact status immediately; the prompt is unchanged. Use wait for delivery or blocking input.', {
+tool('start_task', 'Delegate the first complete result to Cursor Grok 4.6 xhigh fast, including investigation, implementation, self-checks and delivery evidence. Supply the current workspace, objective, constraints and acceptance criteria. Codex then owns acceptance and local corrections. Returns compact status immediately; the prompt is unchanged. Use wait for delivery or blocking input.', {
   cwd: z.string().describe('Absolute working directory or worktree path'), prompt, detail,
   mode: z.enum(['agent', 'ask', 'plan']).default('agent'),
   permissions: z.enum(['default', 'full-access']).default('default').describe('default keeps Cursor sandbox and approvals. full-access launches with --force --sandbox disabled; select only when the user has authorized unrestricted execution for this delegated work. This does not import Codex permissions; Cursor deny rules and team policies still apply.'),
@@ -27,7 +27,7 @@ tool('start_task', 'Delegate a complete work unit to Cursor Grok 4.6 xhigh fast,
   const task = await manager.start(a);
   return detail === 'full' ? task : compactTask(task, { include_config: true });
 });
-tool('read_task', 'Read task details, progress, events, pending requests and native session references. idle is not acceptance. include_output pages the cached reply; read_history retrieves earlier messages and tool results.', {
+tool('read_task', 'Resolve a specific missing detail through task metadata, progress, events, pending requests or native session references. Prefer wait for delivery; ordinary timeouts do not require a progress read. idle is not acceptance. include_output pages the cached reply; read_history retrieves earlier messages and tool results.', {
   task_id: id, after_cursor: z.number().int().nonnegative().default(0),
   max_events: z.number().int().min(1).max(100).default(10),
   include_output: z.boolean().default(false),
@@ -37,7 +37,7 @@ tool('wait', 'Wait for completion, failure, stop or required input; progress sta
   task_ids: z.array(id).min(1).max(16), after_cursors: z.record(z.string(), z.number().int().nonnegative()).default({}),
   timeout_ms: z.number().int().min(0).max(60000).default(50000), detail,
 }, ({ task_ids, ...a }, extra) => manager.wait(task_ids, { ...a, signal: extra.signal }), true);
-tool('send_message', 'Continue an idle Cursor conversation with new context or follow-up work. A busy session must finish or be cancelled first; independent work can use another task. Returns before execution completes.', {
+tool('send_message', 'Continue an idle Cursor conversation when further delegation is warranted: new investigation, substantial rework, or explicit user direction. Codex handles bounded acceptance corrections directly by default. A busy session must finish or be cancelled first; independent work can use another task. Returns before execution completes.', {
   task_id: id, prompt, request_id: z.string().min(1).max(200).optional(),
 }, (a) => manager.send(a.task_id, a.prompt, a.request_id));
 tool('respond', 'Answer a live Cursor client request using its request_id and the ACP response object. Permission requests use {outcome:{outcome:"selected",optionId:"..."}} or {outcome:{outcome:"cancelled"}}. Choose from the returned options under the existing user authorization. Question/plan responses follow the advertised Cursor extension protocol.', {

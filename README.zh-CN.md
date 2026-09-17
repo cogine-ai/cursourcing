@@ -1,7 +1,7 @@
 [![Cursourcing — Your Codex just hired Cursor.](assets/hero.png)](https://github.com/cogine-ai/cursourcing)
 
 <p align="center">
-  <strong>让 Cursor 完成可验收的工作，由 Codex 提供约束、处理决策和验收。</strong><br />
+  <strong>Cursor 完成首轮实现与自测，Codex 接管验收与收尾。</strong><br />
   <a href="#安装">安装 Cursourcing</a> ·
   <a href="https://github.com/cogine-ai/marketplace">Cogine AI Marketplace</a> ·
   <a href="README.md">English</a>
@@ -11,13 +11,16 @@
 
 **Codex 里的 GPT-6 Astra 快不够用了，Cursor 里的 Grok 4.6 却还有余量。** 让这份余量干起活来。
 
-**Cursourcing = Cursor + outsourcing。** 让 Cursor 里的 Grok 4.6 完成一个可验收单元，包括调查、实现和自测。Codex 提供约束、处理阻塞决策，并检查交付结果。
+**Cursourcing = Cursor + outsourcing。** 让 Cursor 里的 Grok 4.6 完成首轮可验收结果，包括调查、实现和自测。Codex 提供约束、处理阻塞决策，在交付后接管验收与局部修正。
 
 你继续在 Codex 里工作。目标是节省 Codex 用量时，减少重复调查和进度查询；实际收益仍取决于任务和审查工作量。
 
-| Codex 规划 | Cursor 执行 | Codex 验收 |
+| 阶段 | 负责人 | 工作范围 |
 | --- | --- | --- |
-| 确定工作单元、约束和验收条件。 | 调查、实现、自测，返回证据或阻塞问题。 | 检查实际改动与结果，发现具体问题后继续修正。 |
+| 首轮完整交付 | Cursor | 按约定的约束调查、实现、自测、自修复，并返回证据。 |
+| 验收与收尾 | Codex | 审查实际变更，对实质风险独立验证，直接完成局部修正与相关复验。 |
+
+Codex 接管后，默认自行完成局部修正。需要新的调查或大范围返工时，可以再次划定完整单元委派；用户明确指定的方式优先。Cursor 会话继续保留，这是职责划分，不是强制只能执行一轮。
 
 Codex 主模型保持你的选择。当前 Cursor 执行配置为 **Grok 4.6 · xhigh · fast**。
 
@@ -48,11 +51,11 @@ codex plugin add cursourcing@cogine-ai
 在项目中新开一个 Codex 任务，引用 **`$cursourcing:cursourcing`**，例如：
 
 ```text
-使用 $cursourcing 把一个完整工作单元交给 Cursor，
-减少 Codex 的协调用量，并验证交付结果。
+使用 $cursourcing 让 Cursor 完成首轮实现与自测，
+然后由 Codex 接管验收、局部修正和最终交付。
 ```
 
-调查和方案探索也可以交给 Cursor，不必先确定每个实现细节。Codex 在需要决策或交付验收时介入，有真正独立的工作时可以继续处理；引用技能不意味着马上委托。
+调查和方案探索也可以交给 Cursor，不必先确定每个实现细节。Cursor 执行期间，Codex 处理阻塞或真正独立的工作，将产物审查留到交付后；引用技能不意味着马上委托。
 
 **[浏览 Cogine AI Marketplace 的全部七个插件 →](https://github.com/cogine-ai/marketplace#available-plugins)**
 
@@ -61,7 +64,7 @@ codex plugin add cursourcing@cogine-ai
 - **范围明确的实现**：按已确定的方案改动相关文件，运行适当检查，汇报结果。
 - **带证据的调查**：追踪故障，收集代码与运行证据，交回 Codex 判断。
 - **相互独立的工作**：在合适的目录或 worktree 中并行运行多个 Cursor 会话。
-- **同一任务的后续修正**：保留 Cursor 会话，根据验收意见继续工作。
+- **值得再次委派的工作**：需要新的调查、大范围返工，或你明确要求时，复用原 Cursor 会话继续。
 
 哪些直接完成、哪些交给 Cursor，由 Codex 随任务推进判断。原生子代理和其他协作方式仍然可用。
 
@@ -73,7 +76,7 @@ codex plugin add cursourcing@cogine-ai
 | 问题与权限请求 | 请求会返回给 Codex，由它根据已有授权处理，必要时再请你决定。 |
 | 精简结果 | 启动和等待默认返回必要状态及未读交付说明，完整详情与原生历史按需加载。 |
 | 会话恢复 | 重新加载保存的对话，继续后续工作，不会自动重跑中断前的指令。 |
-| 主代理验收 | Cursor 一轮结束后，Codex 仍需检查实际改动与结果。 |
+| 主代理验收与收尾 | Codex 检查交付产物与证据，直接完成局部修正，并复验相关行为。 |
 
 ## 常见问题
 
@@ -91,9 +94,10 @@ codex plugin add cursourcing@cogine-ai
 
 ## 更新
 
-**0.2.1** 为原生历史回放设置统一时限，超时或取消后关闭回放客户端，再允许后续指令。
-技能将等待示例放到实际调用处，集中检查交付证据，并在委派可选时考虑交接开销。
-精简结果、独立验收、同会话修正和已有会话恢复继续保留。详见[运行说明](docs/runtime.md)
+**0.2.2** 明确两阶段职责：Cursor 完成首轮实现、自测和证据交付，Codex 接管验收与局部修正。
+技能引导主代理在交付后审查产物，完成相关修改与构建后再运行依赖它们的检查，并复用仍然有效的证据。
+工具说明、调用入口和文档已同步。历史回放时限、精简等待和会话恢复继续保留。
+本次改动尚不能证明节省 token，需要新的行为评测验证。详见[运行说明](docs/runtime.md)
 和[0.2迁移说明](docs/runtime.md#compact-results-and-02-migration)。
 
 ```bash
@@ -102,7 +106,7 @@ codex plugin add cursourcing@cogine-ai
 codex plugin list --json
 ```
 
-确认 Cursourcing 显示版本 `0.2.1`，然后新开任务，以加载最新的技能与工具。
+确认 Cursourcing 显示版本 `0.2.2`，然后新开任务，以加载最新的技能与工具。
 
 ## 更多资料
 

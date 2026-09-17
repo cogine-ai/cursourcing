@@ -1,8 +1,8 @@
 {
   "name": "cursourcing",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "license": "Apache-2.0",
-  "description": "Delegate complete work to Cursor CLI while Codex sets constraints and verifies delivery.",
+  "description": "Cursor CLI delivers the first complete result; Codex accepts and finishes it.",
   "repository": { "type": "git", "url": "https://github.com/cogine-ai/cursourcing.git" },
   "private": true,
   "type": "module",

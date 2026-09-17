@@ -27,6 +27,16 @@ unrelated tasks still run, cached delivery survives, and history can be retried
 without prompting the model. The bundled MCP test exercises a real local fixture
 process that stalls replay, then verifies same-session continuation.
 
+For the 0.2.2 workflow, review the skill, tool descriptions, invocation prompts and
+both READMEs together: none should default to sending routine acceptance findings
+back to Cursor. Preserve explicit user choices, investigation-only tasks, worthwhile
+rework, permission requests and independent verification. Check sequencing of writes,
+builds and dependent checks, and distinguish worker evidence from coordinator checks.
+Offline protocol tests and skill-format validation do not prove these model choices;
+measure them in fresh behavioral runs with the same task and acceptance criteria.
+If the outer evaluation prompt changes too, record that separately from the plugin
+version. Keep historical attempts intact and local until selected for publication.
+
 The source of truth is [cogine-ai/cursourcing](https://github.com/cogine-ai/cursourcing). The marketplace carries a release snapshot with the bundled runtime and skill, so users do not need npm dependencies or a build step.
 
 After building, export that snapshot with `node scripts/export-plugin.mjs <destination>`. Dependency license texts ship in `dist/THIRD_PARTY_NOTICES.md`.

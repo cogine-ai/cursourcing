@@ -1,4 +1,4 @@
 interface:
   display_name: "Cursourcing"
-  short_description: "Delegate complete work to Cursor; verify in Codex"
-  default_prompt: "Use $cursourcing to give Cursor a complete work unit, minimize Codex coordination, and verify the delivered result."
+  short_description: "Cursor implements and self-checks; Codex accepts and finishes"
+  default_prompt: "Use $cursourcing for the first complete implementation and self-checks, then take over acceptance and local corrections in Codex."

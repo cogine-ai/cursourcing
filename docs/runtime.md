@@ -2,6 +2,27 @@
 
 [Back to the README](../README.md)
 
+## Ownership and acceptance in 0.2.2
+
+The skill defaults to two phases. Cursor owns the first complete result, including
+necessary investigation, implementation, self-checks and self-corrections. It
+returns exact checks and outcomes, evidence locations and unresolved gaps, and
+drafts a delivery document when the task requires one. For an investigation-only
+task, the deliverable is findings and evidence rather than code.
+
+Codex supplies known constraints and resolves blockers while Cursor works; review
+of changing artifacts normally waits until delivery. Codex then owns acceptance,
+independent checks for material risks, bounded corrections and affected rechecks.
+Writes and builds finish before checks that consume those artifacts. Valid evidence
+for unchanged parts can be reused; missing evidence and new risks justify more review.
+
+Local corrections stay with Codex by default. New investigation, substantial rework
+or explicit user direction can justify further delegation in the saved session.
+The phases guide ownership; they are not new runtime states, a one-turn limit or
+automatic acceptance. Tool schemas, permissions, cancellation, result shapes and
+session recovery are unchanged. A saved session need not close when Codex takes over.
+The workflow does not guarantee a token reduction.
+
 ## Behavior
 
 - `cwd` is explicit and reaches both the CLI process and ACP `session/new` / `session/load`.

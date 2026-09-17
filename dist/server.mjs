@@ -39079,7 +39079,7 @@ var TaskManager = class {
 
 // src/server.mjs
 var manager = new TaskManager();
-var server = new McpServer({ name: "cursourcing", version: "0.2.1" });
+var server = new McpServer({ name: "cursourcing", version: "0.2.2" });
 var id = external_exports.string().min(8).max(80);
 var prompt = external_exports.string().min(1).max(3e5);
 var detail = external_exports.enum(["compact", "full"]).default("compact").describe("Full metadata and paths are opt-in.");
@@ -39101,7 +39101,7 @@ function tool(name, description, inputSchema, fn, readOnly = false) {
     }
   );
 }
-tool("start_task", "Delegate a complete work unit to Cursor Grok 4.6 xhigh fast, including investigation and self-checks. Supply the current workspace, objective, constraints and acceptance evidence. Returns compact status immediately; the prompt is unchanged. Use wait for delivery or blocking input.", {
+tool("start_task", "Delegate the first complete result to Cursor Grok 4.6 xhigh fast, including investigation, implementation, self-checks and delivery evidence. Supply the current workspace, objective, constraints and acceptance criteria. Codex then owns acceptance and local corrections. Returns compact status immediately; the prompt is unchanged. Use wait for delivery or blocking input.", {
   cwd: external_exports.string().describe("Absolute working directory or worktree path"),
   prompt,
   detail,
@@ -39112,7 +39112,7 @@ tool("start_task", "Delegate a complete work unit to Cursor Grok 4.6 xhigh fast,
   const task = await manager.start(a);
   return detail2 === "full" ? task : compactTask(task, { include_config: true });
 });
-tool("read_task", "Read task details, progress, events, pending requests and native session references. idle is not acceptance. include_output pages the cached reply; read_history retrieves earlier messages and tool results.", {
+tool("read_task", "Resolve a specific missing detail through task metadata, progress, events, pending requests or native session references. Prefer wait for delivery; ordinary timeouts do not require a progress read. idle is not acceptance. include_output pages the cached reply; read_history retrieves earlier messages and tool results.", {
   task_id: id,
   after_cursor: external_exports.number().int().nonnegative().default(0),
   max_events: external_exports.number().int().min(1).max(100).default(10),
@@ -39126,7 +39126,7 @@ tool("wait", "Wait for completion, failure, stop or required input; progress sta
   timeout_ms: external_exports.number().int().min(0).max(6e4).default(5e4),
   detail
 }, ({ task_ids, ...a }, extra) => manager.wait(task_ids, { ...a, signal: extra.signal }), true);
-tool("send_message", "Continue an idle Cursor conversation with new context or follow-up work. A busy session must finish or be cancelled first; independent work can use another task. Returns before execution completes.", {
+tool("send_message", "Continue an idle Cursor conversation when further delegation is warranted: new investigation, substantial rework, or explicit user direction. Codex handles bounded acceptance corrections directly by default. A busy session must finish or be cancelled first; independent work can use another task. Returns before execution completes.", {
   task_id: id,
   prompt,
   request_id: external_exports.string().min(1).max(200).optional()

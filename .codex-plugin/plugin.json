@@ -1,8 +1,8 @@
 {
   "name": "cursourcing",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "license": "Apache-2.0",
-  "description": "Delegate complete work units to Cursor while Codex sets constraints, handles decisions, and verifies delivery.",
+  "description": "Let Cursor deliver the first complete result, then let Codex own acceptance and local corrections.",
   "author": {
     "name": "Cogine AI",
     "url": "https://github.com/cogine-ai"
@@ -14,7 +14,7 @@
   "interface": {
     "displayName": "Cursourcing",
     "shortDescription": "Your Codex just hired Cursor. Tokenmaxxing, unlocked.",
-    "longDescription": "Put available Cursor capacity to work on complete, verifiable tasks. Cursor handles investigation, implementation, and self-checks; your chosen Codex model supplies constraints, resolves blocking decisions, and verifies delivery. Compact results and quiet waits limit avoidable coordination. Supports concurrent tasks, follow-ups, and session recovery. Each service uses its own account and allowance; savings depend on the task and review effort.",
+    "longDescription": "Put available Cursor capacity to work on complete, verifiable tasks. Cursor investigates, implements, self-checks, and returns evidence; your chosen Codex model then owns acceptance and local corrections. Further delegation is reserved for worthwhile new investigation, substantial rework, or your explicit choice. Compact results, concurrent tasks, and session recovery remain available. Each service uses its own account and allowance; savings depend on the task and review effort.",
     "developerName": "Cogine AI",
     "websiteURL": "https://github.com/cogine-ai/cursourcing",
     "category": "Developer Tools",
@@ -28,7 +28,7 @@
       "Orchestration"
     ],
     "defaultPrompt": [
-      "Use $cursourcing to give Cursor a complete work unit, minimize Codex coordination, and verify the delivered result."
+      "Use $cursourcing for the first complete implementation and self-checks, then take over acceptance and local corrections in Codex."
     ]
   },
   "mcpServers": "./.mcp.json"

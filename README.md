@@ -1,7 +1,7 @@
 [![Cursourcing — Your Codex just hired Cursor.](assets/hero.png)](https://github.com/cogine-ai/cursourcing)
 
 <p align="center">
-  <strong>Delegate complete work to Cursor CLI; verify delivery in Codex.</strong><br />
+  <strong>Cursor implements and self-checks; Codex accepts and finishes.</strong><br />
   <a href="#install">Install Cursourcing</a> ·
   <a href="https://github.com/cogine-ai/marketplace">Cogine AI Marketplace</a> ·
   <a href="README.zh-CN.md">中文</a>
@@ -11,13 +11,16 @@
 
 Your **GPT-6 Astra budget in Codex is running low**. Your **Grok 4.6 allowance in Cursor still has room**. Put that spare capacity to work.
 
-**Cursourcing = Cursor + outsourcing.** Give Cursor's Grok 4.6 a complete work unit, including investigation and self-checks. Codex supplies constraints, handles blocking decisions, and verifies the delivered result.
+**Cursourcing = Cursor + outsourcing.** Have Cursor's Grok 4.6 deliver the first complete result, including investigation, implementation and self-checks. Codex supplies constraints and handles blocking decisions, then takes over acceptance and local corrections.
 
 You stay in Codex. When saving Codex usage is the goal, the workflow limits repeated investigation and progress checks; actual savings depend on the task and review effort.
 
-| Codex plans | Cursor executes | Codex reviews |
+| Phase | Owner | Work |
 | --- | --- | --- |
-| Defines the work unit, constraints, and acceptance criteria. | Investigates, implements, self-checks, and returns evidence or blocking questions. | Inspects actual changes, checks the result, and requests specific corrections when needed. |
+| First complete result | Cursor | Investigates, implements, fixes self-check failures, and returns evidence against the agreed constraints. |
+| Acceptance and finish work | Codex | Reviews the actual changes, runs independent checks for material risks, makes local corrections, and rechecks affected results. |
+
+After taking over, Codex keeps bounded corrections locally by default. New investigation or substantial rework can justify another complete delegated unit, and explicit user choices take precedence. Saved Cursor sessions remain available; this is a division of responsibility, not a one-turn limit.
 
 Your main Codex model stays the one you selected. Cursor currently runs **Grok 4.6 · xhigh · fast**.
 
@@ -48,11 +51,11 @@ The runtime is bundled. Installation needs no repository clone, `npm install`, o
 Start a new Codex task in your project and invoke **`$cursourcing:cursourcing`**:
 
 ```text
-Use $cursourcing to give Cursor a complete work unit,
-minimize Codex coordination, and verify the delivered result.
+Use $cursourcing for the first complete implementation and self-checks,
+then take over acceptance and local corrections in Codex.
 ```
 
-Cursor can investigate an open implementation approach. Codex intervenes for blocking decisions and delivery review, while continuing genuinely independent work when useful. Invoking the skill doesn't require immediate delegation.
+Cursor can investigate an open implementation approach. While Cursor owns the unit, Codex handles blockers or genuinely independent work and defers review of changing artifacts until handoff. Invoking the skill doesn't require immediate delegation.
 
 **[Browse all seven plugins in the Cogine AI Marketplace →](https://github.com/cogine-ai/marketplace#available-plugins)**
 
@@ -61,7 +64,7 @@ Cursor can investigate an open implementation approach. Codex intervenes for blo
 - **A scoped implementation.** Add an agreed feature in the relevant files, run the appropriate checks, and report what changed.
 - **An investigation.** Trace a failure, gather evidence, and bring findings back for Codex to assess.
 - **Independent work in parallel.** Run separate Cursor conversations for tasks that can proceed independently, using suitable directories or worktrees.
-- **A follow-up.** Keep the same Cursor conversation and ask it to address review findings or continue from its saved context.
+- **Further delegated work.** Reuse the same Cursor conversation when new investigation, substantial rework, or your explicit request warrants another unit.
 
 Codex decides what to do directly and what to delegate as the task develops. Native Codex collaboration remains available.
 
@@ -73,7 +76,7 @@ Codex decides what to do directly and what to delegate as the task develops. Nat
 | Questions and permissions | Cursor requests come back to Codex so it can respond using the existing authorization or involve you. |
 | Compact results | Start and wait return necessary status and unread delivery reports. Request full details and native history when needed. |
 | Session recovery | Reload a saved conversation and continue it. Recovery doesn't automatically rerun interrupted instructions. |
-| Review stays with Codex | A completed Cursor turn is a result to inspect, not an automatic acceptance decision. |
+| Acceptance stays with Codex | Inspect the delivered result and evidence, finish local corrections, and verify the affected behavior. |
 
 ## A few useful answers
 
@@ -91,11 +94,12 @@ Codex decides what to do directly and what to delegate as the task develops. Nat
 
 ## Update
 
-**0.2.1** bounds native-history replay and cleans up its reader before follow-up
-turns, including after timeout or cancellation. The skill puts the timed waiting
-example at the point of use, concentrates review on delivery evidence, and weighs
-handoff overhead when delegation is optional. Compact results, independent
-acceptance, same-session corrections and saved-session recovery remain available.
+**0.2.2** makes the ownership boundary explicit: Cursor delivers the first complete
+result and self-check evidence; Codex then owns acceptance and bounded corrections.
+The skill defers review of changing artifacts, sequences writes/builds before their
+checks, and reuses valid evidence. Tool guidance, invocation prompts and documentation
+follow the same workflow. Bounded history replay, quiet waits and recovery are retained.
+This update does not establish token savings; those require fresh behavioral evaluation.
 See [runtime details](docs/runtime.md) and the [0.2 migration notes](docs/runtime.md#compact-results-and-02-migration).
 
 ```bash
@@ -104,7 +108,7 @@ codex plugin add cursourcing@cogine-ai
 codex plugin list --json
 ```
 
-Confirm that Cursourcing reports version `0.2.1`, then start a new task to pick up
+Confirm that Cursourcing reports version `0.2.2`, then start a new task to pick up
 the refreshed skill and tools.
 
 ## Go deeper
