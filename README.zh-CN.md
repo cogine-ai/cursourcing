@@ -91,9 +91,10 @@ codex plugin add cursourcing@cogine-ai
 
 ## 更新
 
-**0.2.0** 调整了完整工作单元的委派方式，减少重复进度检查。`start_task` 和
-`wait` 默认返回精简结果；需要旧版完整字段的集成可使用 `detail: "full"` 或
-`read_task`，已保存的会话仍可恢复。详见[迁移说明](docs/runtime.md#compact-results-and-02-migration)。
+**0.2.1** 为原生历史回放设置统一时限，超时或取消后关闭回放客户端，再允许后续指令。
+技能将等待示例放到实际调用处，集中检查交付证据，并在委派可选时考虑交接开销。
+精简结果、独立验收、同会话修正和已有会话恢复继续保留。详见[运行说明](docs/runtime.md)
+和[0.2迁移说明](docs/runtime.md#compact-results-and-02-migration)。
 
 ```bash
 codex plugin marketplace upgrade cogine-ai
@@ -101,7 +102,7 @@ codex plugin add cursourcing@cogine-ai
 codex plugin list --json
 ```
 
-确认 Cursourcing 显示版本 `0.2.0`，然后新开任务，以加载最新的技能与工具。
+确认 Cursourcing 显示版本 `0.2.1`，然后新开任务，以加载最新的技能与工具。
 
 ## 更多资料
 

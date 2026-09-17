@@ -59,6 +59,17 @@ Cursor already stores ACP conversations. On the tested CLI version the default l
 
 Use `read_task` with `include_output: true` to page through the cached reply. Use `read_history` for detailed earlier messages and tool results from an idle task. It loads Cursor's saved conversation through ACP and returns a bounded JSONL text window; it sends no model prompt and writes no transcript copy. Each page reloads the conversation, so it has startup/IO cost and offsets are valid only while the conversation is unchanged. It returns the history Cursor can replay, not the original wire stream or a guarantee that every command's entire output was retained.
 
+History is an optional diagnostic, not a routine acceptance check. Review the
+delivery, actual artifacts and relevant checks first. `read_history.timeout_ms`
+defaults to 50,000 (range 1–50,000); one budget covers replay-client startup,
+authentication and loading together. It does not reset for each ACP request.
+Allow additional time for ownership acquisition and process cleanup; choose a
+shorter budget for hosts with shorter tool-call deadlines. Timeout, host
+cancellation, `cancel`, and shutdown close the separate replay client before
+releasing the history guard. The task's existing execution client, saved
+conversation and cached reply are preserved, so follow-up turns can continue.
+The bridge does not automatically retry history or replay a model prompt.
+
 Authentication responses and environment variables are not recorded. Native Cursor conversations remain managed by Cursor; the bridge does not remove them or impose a second full-history retention policy.
 
 Optional environment variables: `CURSOURCING_BINARY` selects a CLI executable; `CURSOURCING_STATE_DIR` selects an isolated state directory. The default executable is `~/.local/bin/agent` when present, otherwise `cursor-agent` on PATH.

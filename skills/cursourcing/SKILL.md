@@ -9,7 +9,7 @@ Use Cursor to complete a coherent work unit and return evidence. When saving Cod
 
 Cursor owns the unit's necessary investigation, local design decisions, implementation, and self-checks. Codex supplies known constraints, resolves decisions outside that scope, and verifies delivery. A unit can also be an investigation that returns findings and evidence. Do not solve the same unit again while Cursor is working. Continue genuinely independent work, or wait when none is needed.
 
-Match the handoff to the task and the user's priorities. Direct execution and other collaboration tools remain useful when their overhead and expected result fit better.
+When delegation is optional, choose a unit whose remaining investigation and execution justify the handoff and review. A known, local change may be cheaper to finish directly; substantial investigation can itself be worth delegating. Judge from available context without first solving the task to estimate it. Follow the user's explicit execution choice; do not route solely by task category or file count.
 
 ## Hand off work
 
@@ -22,10 +22,21 @@ Choose execution permissions at handoff. When the current Codex task explicitly 
 ## Follow execution
 
 - Use `wait` for delivery, failure, stopping, or required input; ordinary progress stays local. Feed each `next_cursor` into `after_cursors` so seen completions do not wake later waits. Unresolved requests and lost runtimes remain actionable. A wait timeout leaves execution running and needs no new investigation.
-- When using timed exec/wait wrappers, give the outer call more time than the inner wait and avoid repeated short polling. Follow the [host waiting examples](references/waiting.md) for those wrappers and single-view result handling.
+- For timed wrappers, give the outer call more time than the inner wait. In Codex `functions.exec`, use the following pattern when its limits allow (resolve the actual tool name first):
+
+  ```javascript
+  // @exec: {"yield_time_ms": 60000}
+  const result = await tools.mcp__cursourcing__wait({
+    task_ids: [taskId], after_cursors: { [taskId]: lastCursor }, timeout_ms: 50000,
+  });
+  text(result.structuredContent ?? result.content);
+  ```
+
+  If the wrapper yields a running cell, continue that same cell with a long `functions.wait` (e.g. `yield_time_ms: 60000` where supported). Do not start another plugin wait or repeatedly check at one-second intervals. Adapt to shorter host limits; see [waiting details](references/waiting.md).
 - Independent tasks can run in separate Cursor sessions concurrently. Choose working directories that make sense for concurrent file changes. The bridge does not create worktrees automatically.
-- `wait` includes the completed reply. Concentrate review after delivery: inspect actual changes and run risk-relevant independent checks. A worker's report and `idle` / `end_turn` are not acceptance verdicts. Investigate further when evidence is missing, checks fail, or a concrete new risk appears; give specific corrections in the same session. Stop when the acceptance criteria are satisfied.
-- Use `read_task` only for needed progress, events, native session references, or more output; do not automatically read after every wait. Page the cached reply with `include_output: true` and output offsets. Event cursors are separate from output offsets; start event reads at zero for earlier retained activity. For earlier messages or detailed tool results, use `read_history` on an idle task. Replay sends no prompt; restart history offsets after another turn. Truncation and cursor gaps are explicit.
+- `wait` includes the completed reply. Review that evidence, the actual artifacts or diff, and risk-relevant independent checks against the agreed acceptance criteria. A worker's report and `idle` / `end_turn` are not acceptance verdicts. Group related findings into a concrete same-session correction; recheck the affected criteria and relevant regressions. Expand review when evidence is missing, checks fail, or a new risk appears. Stop when acceptance is satisfied.
+- Use `read_task` for a specific missing detail, not automatically after every wait. Page the cached reply with `include_output: true` and output offsets. Event cursors are separate from output offsets; start event reads at zero for earlier retained activity. Truncation and cursor gaps are explicit.
+- Use `read_history` on an idle task only when earlier messages or tool results are needed to resolve a specific question. It is not a routine acceptance step: each page starts a native replay. After a timeout, use available artifacts/cached output; retry history only if that evidence is still necessary. Replay sends no prompt; restart history offsets after another turn.
 
 ## Continue, answer, recover
 

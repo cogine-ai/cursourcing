@@ -3,9 +3,10 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { TaskManager } from './tasks.mjs';
 import { compactTask } from './views.mjs';
+import { HISTORY_TIMEOUT_MS } from './history.mjs';
 
 const manager = new TaskManager();
-const server = new McpServer({ name: 'cursourcing', version: '0.2.0' });
+const server = new McpServer({ name: 'cursourcing', version: '0.2.1' });
 const id = z.string().min(8).max(80), prompt = z.string().min(1).max(300000);
 const detail = z.enum(['compact', 'full']).default('compact').describe('Full metadata and paths are opt-in.');
 const result = (value) => ({ content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value });
@@ -32,7 +33,7 @@ tool('read_task', 'Read task details, progress, events, pending requests and nat
   include_output: z.boolean().default(false),
   output_offset: z.number().int().nonnegative().default(0), max_output_chars: z.number().int().min(1).max(50000).default(8000),
 }, ({ task_id, ...a }) => manager.read(task_id, a), true);
-tool('wait', 'Wait for completion, failure, stop or required input; progress stays local. Returns compact status and an unread reply. Pass next_cursor in after_cursors. Give timed outer wrappers a longer budget than timeout_ms; avoid short polling. Timeout/cancellation leaves execution running.', {
+tool('wait', 'Wait for completion, failure, stop or required input; progress stays local. Returns compact status and an unread reply. Pass next_cursor in after_cursors. For timed host wrappers, use a longer outer budget (e.g. 60s outside / 50s inside when supported). If the wrapper yields, continue that pending call with a long wait rather than short polls or a second plugin wait. Timeout/cancellation leaves execution running.', {
   task_ids: z.array(id).min(1).max(16), after_cursors: z.record(z.string(), z.number().int().nonnegative()).default({}),
   timeout_ms: z.number().int().min(0).max(60000).default(50000), detail,
 }, ({ task_ids, ...a }, extra) => manager.wait(task_ids, { ...a, signal: extra.signal }), true);
@@ -45,8 +46,10 @@ tool('respond', 'Answer a live Cursor client request using its request_id and th
 tool('cancel', 'Stop a running task, retaining its output and file changes. Cancels only the selected Cursor task. It does not roll back files.', { task_id: id }, (a) => manager.cancel(a.task_id));
 tool('resume', 'Reload a saved Cursor conversation in its original cwd and requested model configuration. Returns while initialization is running. It does not replay unfinished instructions; after it becomes idle, send_message can continue the work.', { task_id: id }, (a) => manager.resume(a.task_id));
 tool('list_tasks', 'Find saved Cursor tasks and their statuses, optionally within a workspace. Records describe bridge activity only, not native Codex subagents.', { cwd: z.string().optional() }, (a) => ({ tasks: manager.list(a.cwd) }), true);
-tool('read_history', 'Read an idle task’s native Cursor conversation through ACP replay, without sending a model prompt or copying its transcript to disk. Returns a bounded JSONL character window of messages and tool results. Each page reloads history; reuse offsets only while the conversation is unchanged. Startup/authentication may take time.', {
+tool('read_history', 'Inspect earlier messages or tool results when a specific evidence gap requires them; not a routine delivery check. Prefer the reply from wait, cached read_task output and actual artifacts first. Replays an idle session without prompting the model or copying its transcript to disk. Each page reloads history; offsets require an unchanged conversation. A shared replay deadline closes the read client before releasing the session for follow-ups; errors leave the saved session and cached reply intact.', {
   task_id: id, offset: z.number().int().nonnegative().default(0), limit: z.number().int().min(1).max(100000).default(16000),
+  timeout_ms: z.number().int().min(1).max(HISTORY_TIMEOUT_MS).default(HISTORY_TIMEOUT_MS)
+    .describe('Budget for startup, authentication and replay together; allow additional time for process cleanup. Lower it for hosts with shorter tool-call deadlines.'),
 }, ({ task_id, ...a }, extra) => manager.history(task_id, { ...a, signal: extra.signal }), true);
 
 const transport = new StdioServerTransport();

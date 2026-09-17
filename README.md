@@ -91,10 +91,12 @@ Codex decides what to do directly and what to delegate as the task develops. Nat
 
 ## Update
 
-**0.2.0** focuses delegation on complete work units and reduces repeated progress
-checks. `start_task` and `wait` now return compact results by default. Integrations
-that need the previous snapshot fields can use `detail: "full"` or `read_task`;
-saved sessions remain recoverable. See the [migration notes](docs/runtime.md#compact-results-and-02-migration).
+**0.2.1** bounds native-history replay and cleans up its reader before follow-up
+turns, including after timeout or cancellation. The skill puts the timed waiting
+example at the point of use, concentrates review on delivery evidence, and weighs
+handoff overhead when delegation is optional. Compact results, independent
+acceptance, same-session corrections and saved-session recovery remain available.
+See [runtime details](docs/runtime.md) and the [0.2 migration notes](docs/runtime.md#compact-results-and-02-migration).
 
 ```bash
 codex plugin marketplace upgrade cogine-ai
@@ -102,7 +104,7 @@ codex plugin add cursourcing@cogine-ai
 codex plugin list --json
 ```
 
-Confirm that Cursourcing reports version `0.2.0`, then start a new task to pick up
+Confirm that Cursourcing reports version `0.2.1`, then start a new task to pick up
 the refreshed skill and tools.
 
 ## Go deeper

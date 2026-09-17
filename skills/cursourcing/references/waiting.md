@@ -6,28 +6,16 @@ No wrapper change makes an ended Codex turn automatically resume.
 
 ## Collect a result
 
-Resolve the Cursourcing wait tool from the current inventory. In this example
-its name is `mcp__cursourcing__wait`. Keep the outer budget longer than the inner
-wait plus transport overhead. Where supported, 60 seconds outside and 50 seconds
-inside is a useful starting point, not a timeout guarantee:
+Use the executable pattern in [the skill](../SKILL.md#follow-execution). Resolve
+the tool name from the current inventory. Initialize `lastCursor` to zero, then
+use each task's returned `next_cursor`. Keep the outer budget longer than the
+inner wait plus transport overhead; 60 seconds outside / 50 seconds inside is
+a starting point where supported, not a timeout guarantee.
 
-```javascript
-// @exec: {"yield_time_ms": 60000}
-const result = await tools.mcp__cursourcing__wait({
-  task_ids: ["<returned task_id>"],
-  after_cursors: { "<returned task_id>": 0 }, // Use the last returned next_cursor.
-  timeout_ms: 50000,
-});
-// Emit one view, not both copies of the MCP result.
-if (result.structuredContent !== undefined) text(result.structuredContent);
-else text(result.content);
-```
-
-If exec yields a running cell, continue that same cell with `functions.wait`
-and a sufficient budget, for example `yield_time_ms: 60000`. Do not start a second
-plugin wait while the first is still pending. Avoid repeated one-second checks.
-If the host only permits shorter calls, respect that limit and reuse the pending
-cell rather than assuming the long budget was accepted.
+A host yield means the original call is still pending. Continue its cell rather
+than opening a second wait. If the host caps waits below those example values,
+lower the inner timeout to fit with headroom, or use the host's supported
+continuation mechanism. The plugin cannot set the host's outer yield budget.
 
 When the plugin actually returns `timed_out: true`, execution is still running.
 Carry forward each task's `next_cursor` and wait again if results are needed;

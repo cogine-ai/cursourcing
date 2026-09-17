@@ -54,3 +54,59 @@ test('cancelling a history read closes its owned ACP client', async () => {
   controller.abort();
   await assert.rejects(reading, /closed|cancelled/); assert.equal(wasClosed, true);
 });
+
+for (const phase of ['initialize', 'session/load']) {
+  test(`history deadline bounds a stalled ${phase} even without host cancellation`, { timeout: 2000 }, async () => {
+    let closed = 0;
+    const methods = [];
+    const clientFactory = () => ({
+      initialize: () => phase === 'initialize' ? new Promise(() => {}) : Promise.resolve({}),
+      request: (method) => { methods.push(method); return new Promise(() => {}); },
+      // Even a client that does not reject its pending operation on close must
+      // not keep the read's public promise and manager guard pending forever.
+      close: async () => { closed++; },
+    });
+    await assert.rejects(replayHistory({ cwd: '/tmp', session_id: 'session-1', clientFactory, timeout_ms: 30 }), /timed out/);
+    assert.equal(closed, 1);
+    assert.deepEqual(methods, phase === 'initialize' ? [] : ['session/load']);
+  });
+}
+
+test('history cancellation settles even when initialization does not reject on close', { timeout: 2000 }, async () => {
+  const controller = new AbortController();
+  let finishInitialize, closed = 0, loads = 0;
+  const reading = replayHistory({ cwd: '/tmp', session_id: 'session-1', signal: controller.signal,
+    clientFactory: () => ({
+      initialize: () => new Promise((resolve) => { finishInitialize = resolve; }),
+      request: async () => { loads++; },
+      close: async () => { closed++; },
+    }),
+  });
+  const rejected = assert.rejects(reading, /cancelled/);
+  controller.abort();
+  await rejected;
+  finishInitialize({});
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(closed, 1);
+  assert.equal(loads, 0); // A late initialization must not start replay after cancellation.
+});
+
+test('an already cancelled history call creates no client', async () => {
+  const controller = new AbortController(); controller.abort();
+  await assert.rejects(replayHistory({ cwd: '/tmp', session_id: 'session-1', signal: controller.signal,
+    clientFactory: () => { assert.fail('should not spawn'); },
+  }), /cancelled/);
+});
+
+test('history shares one deadline across initialization and replay', { timeout: 2000 }, async () => {
+  const delay = () => new Promise((resolve) => setTimeout(resolve, 60));
+  let closed = false;
+  await assert.rejects(replayHistory({ cwd: '/tmp', session_id: 'session-1', timeout_ms: 100,
+    clientFactory: () => ({
+      initialize: async () => { await delay(); return {}; },
+      request: delay,
+      close: async () => { closed = true; },
+    }),
+  }), /timed out/);
+  assert.equal(closed, true);
+});

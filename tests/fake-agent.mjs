@@ -32,6 +32,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   }
   if (m.method === 'session/load') {
     session = JSON.parse(readFileSync(join(process.cwd(), `.fake-${p.sessionId}.json`), 'utf8'));
+    if (session.holdHistory) return; // Simulate a replay that never answers its ACP request.
     text('OLD_REPLAY_SHOULD_NOT_APPEAR');
     return reply(m.id, { configOptions: config() });
   }
@@ -42,6 +43,8 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   if (m.method === 'session/prompt') {
     active = m.id;
     const prompt = p.prompt.map((part) => part.text ?? '').join('');
+    if (prompt === 'MOCK:history-hold') { session.holdHistory = true; save(); return finish('HISTORY_READY'); }
+    if (prompt === 'MOCK:history-release') { delete session.holdHistory; save(); return finish('HISTORY_RELEASED'); }
     if (prompt === 'MOCK:hold') return;
     if (prompt === 'MOCK:progress' || prompt === 'MOCK:progress-hold') {
       for (let i = 0; i < 25; i++) {

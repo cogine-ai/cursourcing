@@ -38173,7 +38173,7 @@ var AcpClient = class {
   async initialize() {
     const info = await this.request("initialize", {
       protocolVersion: 1,
-      clientInfo: { name: "cursourcing", version: "0.2.0" },
+      clientInfo: { name: "cursourcing", version: "0.2.1" },
       clientCapabilities: {
         fs: { readTextFile: false, writeTextFile: false },
         terminal: false,
@@ -38512,6 +38512,7 @@ var Store = class {
 import { existsSync as existsSync3, readFileSync as readFileSync2 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { join as join3, resolve as resolve2 } from "node:path";
+var HISTORY_TIMEOUT_MS = 5e4;
 function nativeSessionReference(task) {
   const reference = { session_id: task.session_id, cwd: task.cwd, history_method: "session/load", files_verified: false };
   if (!task.session_id || !/^[a-zA-Z0-9_-]{1,160}$/.test(task.session_id)) return reference;
@@ -38533,22 +38534,23 @@ async function replayHistory({
   offset = 0,
   limit = 16e3,
   clientFactory = (args) => new AcpClient(args),
-  signal
+  signal,
+  timeout_ms = HISTORY_TIMEOUT_MS
 }) {
   if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 1e5) {
     throw new Error("History offset must be nonnegative and limit must be between 1 and 100000");
   }
+  if (!Number.isSafeInteger(timeout_ms) || timeout_ms < 1 || timeout_ms > HISTORY_TIMEOUT_MS) {
+    throw new Error(`History timeout must be between 1 and ${HISTORY_TIMEOUT_MS} ms`);
+  }
   if (signal?.aborted) throw new Error("History read cancelled");
-  let client, closing, text = "", total = 0, events = 0;
+  let text = "", total = 0, events = 0, stopped;
   const accept = /* @__PURE__ */ new Set(["user_message_chunk", "agent_message_chunk", "tool_call", "tool_call_update", "plan"]);
-  const close = () => closing ??= Promise.resolve(client.close());
-  const abort = () => {
-    void close();
-  };
-  client = clientFactory({ cwd, onExit: () => {
+  const client = clientFactory({ cwd, onExit: () => {
   }, onRequest: (request) => {
     client.respondError(request.id, "History inspection does not execute tools or approve requests");
   }, onUpdate: (params) => {
+    if (stopped) return;
     if (params.sessionId && params.sessionId !== session_id) return;
     const update = params.update;
     if (!update || !accept.has(update.sessionUpdate)) return;
@@ -38558,13 +38560,30 @@ async function replayHistory({
     if (end > start) text += line.slice(start, end);
     total += line.length;
   } });
+  let rejectStopped;
+  const cancelled = new Promise((_, reject) => {
+    rejectStopped = reject;
+  });
+  const stop = (error62) => {
+    if (stopped) return;
+    stopped = error62;
+    rejectStopped(error62);
+  };
+  const abort = () => stop(new Error("History read cancelled"));
+  const timer = setTimeout(() => stop(new Error(
+    `History replay timed out after ${timeout_ms} ms. The saved session and cached reply are unchanged; use read_task for the cached reply, or retry read_history only if still needed.`
+  )), timeout_ms);
   signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
   try {
-    const initialized = await client.initialize();
-    if (signal?.aborted) throw new Error("History read cancelled");
-    if (initialized?.agentCapabilities?.loadSession === false) throw new Error("Cursor does not support session history loading");
-    await client.request("session/load", { sessionId: session_id, cwd, mcpServers: [] });
-    if (signal?.aborted) throw new Error("History read cancelled");
+    await Promise.race([cancelled, (async () => {
+      if (stopped) throw stopped;
+      const initialized = await client.initialize();
+      if (stopped) throw stopped;
+      if (initialized?.agentCapabilities?.loadSession === false) throw new Error("Cursor does not support session history loading");
+      await client.request("session/load", { sessionId: session_id, cwd, mcpServers: [] });
+      if (stopped) throw stopped;
+    })()]);
     return {
       source: "cursor-acp-replay",
       session_id,
@@ -38579,8 +38598,9 @@ async function replayHistory({
       history_scope: "User and assistant messages, tool calls and tool results replayed by Cursor. Not a byte-for-byte protocol log."
     };
   } finally {
+    clearTimeout(timer);
     signal?.removeEventListener("abort", abort);
-    await close();
+    await client.close();
   }
 }
 
@@ -38924,7 +38944,7 @@ var TaskManager = class {
     if (ctx.task.state !== "cancelled") this.state(ctx, "interrupted", { error: "Execution stopped; Cursor did not confirm cancellation. File changes are retained." });
     return this.snapshot(id2);
   }
-  async history(id2, { offset = 0, limit = 16e3, signal } = {}) {
+  async history(id2, { offset = 0, limit = 16e3, signal, timeout_ms } = {}) {
     if (this.closed) throw new Error("Plugin runtime is shutting down");
     if (this.contexts.get(id2)?.busy || this.histories.has(id2)) throw new Error("Task is busy. Read history after execution is idle.");
     const task = this.store.load(id2);
@@ -38945,7 +38965,8 @@ var TaskManager = class {
         offset,
         limit,
         clientFactory: this.clientFactory,
-        signal: reading.controller.signal
+        signal: reading.controller.signal,
+        timeout_ms
       });
     })();
     try {
@@ -39058,7 +39079,7 @@ var TaskManager = class {
 
 // src/server.mjs
 var manager = new TaskManager();
-var server = new McpServer({ name: "cursourcing", version: "0.2.0" });
+var server = new McpServer({ name: "cursourcing", version: "0.2.1" });
 var id = external_exports.string().min(8).max(80);
 var prompt = external_exports.string().min(1).max(3e5);
 var detail = external_exports.enum(["compact", "full"]).default("compact").describe("Full metadata and paths are opt-in.");
@@ -39099,7 +39120,7 @@ tool("read_task", "Read task details, progress, events, pending requests and nat
   output_offset: external_exports.number().int().nonnegative().default(0),
   max_output_chars: external_exports.number().int().min(1).max(5e4).default(8e3)
 }, ({ task_id, ...a }) => manager.read(task_id, a), true);
-tool("wait", "Wait for completion, failure, stop or required input; progress stays local. Returns compact status and an unread reply. Pass next_cursor in after_cursors. Give timed outer wrappers a longer budget than timeout_ms; avoid short polling. Timeout/cancellation leaves execution running.", {
+tool("wait", "Wait for completion, failure, stop or required input; progress stays local. Returns compact status and an unread reply. Pass next_cursor in after_cursors. For timed host wrappers, use a longer outer budget (e.g. 60s outside / 50s inside when supported). If the wrapper yields, continue that pending call with a long wait rather than short polls or a second plugin wait. Timeout/cancellation leaves execution running.", {
   task_ids: external_exports.array(id).min(1).max(16),
   after_cursors: external_exports.record(external_exports.string(), external_exports.number().int().nonnegative()).default({}),
   timeout_ms: external_exports.number().int().min(0).max(6e4).default(5e4),
@@ -39118,10 +39139,11 @@ tool("respond", 'Answer a live Cursor client request using its request_id and th
 tool("cancel", "Stop a running task, retaining its output and file changes. Cancels only the selected Cursor task. It does not roll back files.", { task_id: id }, (a) => manager.cancel(a.task_id));
 tool("resume", "Reload a saved Cursor conversation in its original cwd and requested model configuration. Returns while initialization is running. It does not replay unfinished instructions; after it becomes idle, send_message can continue the work.", { task_id: id }, (a) => manager.resume(a.task_id));
 tool("list_tasks", "Find saved Cursor tasks and their statuses, optionally within a workspace. Records describe bridge activity only, not native Codex subagents.", { cwd: external_exports.string().optional() }, (a) => ({ tasks: manager.list(a.cwd) }), true);
-tool("read_history", "Read an idle task\u2019s native Cursor conversation through ACP replay, without sending a model prompt or copying its transcript to disk. Returns a bounded JSONL character window of messages and tool results. Each page reloads history; reuse offsets only while the conversation is unchanged. Startup/authentication may take time.", {
+tool("read_history", "Inspect earlier messages or tool results when a specific evidence gap requires them; not a routine delivery check. Prefer the reply from wait, cached read_task output and actual artifacts first. Replays an idle session without prompting the model or copying its transcript to disk. Each page reloads history; offsets require an unchanged conversation. A shared replay deadline closes the read client before releasing the session for follow-ups; errors leave the saved session and cached reply intact.", {
   task_id: id,
   offset: external_exports.number().int().nonnegative().default(0),
-  limit: external_exports.number().int().min(1).max(1e5).default(16e3)
+  limit: external_exports.number().int().min(1).max(1e5).default(16e3),
+  timeout_ms: external_exports.number().int().min(1).max(HISTORY_TIMEOUT_MS).default(HISTORY_TIMEOUT_MS).describe("Budget for startup, authentication and replay together; allow additional time for process cleanup. Lower it for hosts with shorter tool-call deadlines.")
 }, ({ task_id, ...a }, extra) => manager.history(task_id, { ...a, signal: extra.signal }), true);
 var transport = new StdioServerTransport();
 var stopping = false;

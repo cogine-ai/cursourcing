@@ -3,6 +3,8 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { AcpClient } from './acp.mjs';
 
+export const HISTORY_TIMEOUT_MS = 50000;
+
 // A verified convenience reference for the observed Cursor CLI layout, not its public API.
 // Recovery uses the returned ACP session ID + cwd, never the database's internal schema.
 export function nativeSessionReference(task) {
@@ -24,18 +26,20 @@ export function nativeSessionReference(task) {
 // Stream a requested character window from ACP replay. No transcript copy or prompt is created.
 // Each page reloads history, so offsets should be reused only while the conversation is unchanged.
 export async function replayHistory({ cwd, session_id, offset = 0, limit = 16000,
-  clientFactory = (args) => new AcpClient(args), signal }) {
+  clientFactory = (args) => new AcpClient(args), signal, timeout_ms = HISTORY_TIMEOUT_MS }) {
   if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100000) {
     throw new Error('History offset must be nonnegative and limit must be between 1 and 100000');
   }
+  if (!Number.isSafeInteger(timeout_ms) || timeout_ms < 1 || timeout_ms > HISTORY_TIMEOUT_MS) {
+    throw new Error(`History timeout must be between 1 and ${HISTORY_TIMEOUT_MS} ms`);
+  }
   if (signal?.aborted) throw new Error('History read cancelled');
-  let client, closing, text = '', total = 0, events = 0;
+  let text = '', total = 0, events = 0, stopped;
   const accept = new Set(['user_message_chunk', 'agent_message_chunk', 'tool_call', 'tool_call_update', 'plan']);
-  const close = () => closing ??= Promise.resolve(client.close());
-  const abort = () => { void close(); };
-  client = clientFactory({ cwd, onExit: () => {}, onRequest: (request) => {
+  const client = clientFactory({ cwd, onExit: () => {}, onRequest: (request) => {
     client.respondError(request.id, 'History inspection does not execute tools or approve requests');
   }, onUpdate: (params) => {
+    if (stopped) return;
     if (params.sessionId && params.sessionId !== session_id) return;
     const update = params.update;
     if (!update || !accept.has(update.sessionUpdate)) return;
@@ -45,19 +49,38 @@ export async function replayHistory({ cwd, session_id, offset = 0, limit = 16000
     if (end > start) text += line.slice(start, end);
     total += line.length;
   } });
+  let rejectStopped;
+  const cancelled = new Promise((_, reject) => { rejectStopped = reject; });
+  const stop = (error) => {
+    if (stopped) return;
+    stopped = error; rejectStopped(error);
+  };
+  const abort = () => stop(new Error('History read cancelled'));
+  // One budget covers startup, authentication and replay, rather than allowing
+  // each ACP request its own 90 seconds beyond the host's tool-call deadline.
+  const timer = setTimeout(() => stop(new Error(
+    `History replay timed out after ${timeout_ms} ms. The saved session and cached reply are unchanged; use read_task for the cached reply, or retry read_history only if still needed.`,
+  )), timeout_ms);
   signal?.addEventListener('abort', abort, { once: true });
+  if (signal?.aborted) abort();
   try {
-    const initialized = await client.initialize();
-    if (signal?.aborted) throw new Error('History read cancelled');
-    if (initialized?.agentCapabilities?.loadSession === false) throw new Error('Cursor does not support session history loading');
-    await client.request('session/load', { sessionId: session_id, cwd, mcpServers: [] });
-    if (signal?.aborted) throw new Error('History read cancelled');
+    await Promise.race([cancelled, (async () => {
+      if (stopped) throw stopped;
+      const initialized = await client.initialize();
+      if (stopped) throw stopped;
+      if (initialized?.agentCapabilities?.loadSession === false) throw new Error('Cursor does not support session history loading');
+      await client.request('session/load', { sessionId: session_id, cwd, mcpServers: [] });
+      if (stopped) throw stopped;
+    })()]);
     return { source: 'cursor-acp-replay', session_id, cwd, format: 'jsonl', text,
       offset, next_offset: Math.min(offset + text.length, total), total_chars: total,
       has_more: offset + text.length < total, replayed_events: events,
       history_scope: 'User and assistant messages, tool calls and tool results replayed by Cursor. Not a byte-for-byte protocol log.' };
   } finally {
+    clearTimeout(timer);
     signal?.removeEventListener('abort', abort);
-    await close();
+    // Do not release the manager's history guard while the replay process can
+    // still access the session. AcpClient.close escalates termination after 4s.
+    await client.close();
   }
 }

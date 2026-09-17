@@ -20,6 +20,13 @@ verify prompt completion, blocking input, and listener cleanup independently of
 OS watcher latency. These are offline protocol tests, not a measurement of model
 routing, paid token savings, or live Cursor service reliability.
 
+History regressions cover stalled initialization/replay without a host cancel,
+host and explicit cancellation, shutdown, and follow-ups after cleanup. They
+verify that the session stays guarded until the replay client has closed,
+unrelated tasks still run, cached delivery survives, and history can be retried
+without prompting the model. The bundled MCP test exercises a real local fixture
+process that stalls replay, then verifies same-session continuation.
+
 The source of truth is [cogine-ai/cursourcing](https://github.com/cogine-ai/cursourcing). The marketplace carries a release snapshot with the bundled runtime and skill, so users do not need npm dependencies or a build step.
 
 After building, export that snapshot with `node scripts/export-plugin.mjs <destination>`. Dependency license texts ship in `dist/THIRD_PARTY_NOTICES.md`.

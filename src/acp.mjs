@@ -82,7 +82,7 @@ export class AcpClient {
   }
   async initialize() {
     const info = await this.request('initialize', {
-      protocolVersion: 1, clientInfo: { name: 'cursourcing', version: '0.2.0' },
+      protocolVersion: 1, clientInfo: { name: 'cursourcing', version: '0.2.1' },
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false,
         _meta: { parameterizedModelPicker: true } },
     });

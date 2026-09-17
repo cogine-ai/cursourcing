@@ -240,7 +240,7 @@ export class TaskManager {
     if (ctx.task.state !== 'cancelled') this.state(ctx, 'interrupted', { error: 'Execution stopped; Cursor did not confirm cancellation. File changes are retained.' });
     return this.snapshot(id);
   }
-  async history(id, { offset = 0, limit = 16000, signal } = {}) {
+  async history(id, { offset = 0, limit = 16000, signal, timeout_ms } = {}) {
     if (this.closed) throw new Error('Plugin runtime is shutting down');
     if (this.contexts.get(id)?.busy || this.histories.has(id)) throw new Error('Task is busy. Read history after execution is idle.');
     const task = this.store.load(id);
@@ -255,7 +255,7 @@ export class TaskManager {
         this.state(ctx, 'interrupted', { error: 'Previous runtime stopped. Reading history does not restart execution.', pending_requests: [] });
       }
       return replayHistory({ cwd: task.cwd, session_id: task.session_id, offset, limit,
-        clientFactory: this.clientFactory, signal: reading.controller.signal });
+        clientFactory: this.clientFactory, signal: reading.controller.signal, timeout_ms });
     })();
     try { return await reading.work; }
     finally { this.histories.delete(id); signal?.removeEventListener('abort', abort); }
